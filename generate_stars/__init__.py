@@ -1,0 +1,2 @@
+"""Star cluster generator package."""
+
