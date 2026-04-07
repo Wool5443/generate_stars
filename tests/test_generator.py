@@ -7,6 +7,7 @@ import unittest
 from generate_stars.generator import (
     allocate_cluster_counts,
     format_points_for_export,
+    preview_cluster_counts,
     generate_ring_centers,
     generate_star_field,
     generate_trash_points,
@@ -33,6 +34,23 @@ class GeneratorTests(unittest.TestCase):
             rng=rng,
         )
         self.assertEqual(counts, [4, 3, 3])
+
+    def test_preview_cluster_counts_for_manual_mode(self) -> None:
+        state = AppState(
+            cluster_count=3,
+            distribution_mode=DistributionMode.MANUAL,
+            manual_counts=[5, 7, 9],
+            total_cluster_stars=21,
+        )
+        self.assertEqual(preview_cluster_counts(state), [5, 7, 9])
+
+    def test_preview_cluster_counts_for_deviation_mode_is_none(self) -> None:
+        state = AppState(
+            cluster_count=3,
+            distribution_mode=DistributionMode.DEVIATION,
+            total_cluster_stars=21,
+        )
+        self.assertIsNone(preview_cluster_counts(state))
 
     def test_deviation_distribution_preserves_total(self) -> None:
         rng = random.Random(11)
@@ -114,6 +132,14 @@ class GeneratorTests(unittest.TestCase):
         small_distance = math.hypot(small_centers[0].x, small_centers[0].y)
         large_distance = math.hypot(large_centers[0].x, large_centers[0].y)
         self.assertLess(small_distance, large_distance)
+
+    def test_generate_ring_centers_keeps_minimum_origin_clearance_of_five(self) -> None:
+        centers = generate_ring_centers(
+            ShapeKind.CIRCLE,
+            [ClusterSize(radius=10.0)],
+        )
+        distance = math.hypot(centers[0].x, centers[0].y)
+        self.assertEqual(distance - 10.0, 5.0)
 
     def test_generate_star_field_combines_cluster_and_trash_counts(self) -> None:
         rng = random.Random(23)

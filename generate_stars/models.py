@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from . import constants
+
 
 class ShapeKind(StrEnum):
     CIRCLE = "circle"
@@ -23,9 +25,9 @@ class Point:
 
 @dataclass(slots=True)
 class ClusterSize:
-    radius: float = 10.0
-    width: float = 10.0
-    height: float = 10.0
+    radius: float = constants.DEFAULT_CLUSTER_RADIUS
+    width: float = constants.DEFAULT_CLUSTER_WIDTH
+    height: float = constants.DEFAULT_CLUSTER_HEIGHT
 
     def copy(self) -> "ClusterSize":
         return ClusterSize(radius=self.radius, width=self.width, height=self.height)
@@ -46,18 +48,18 @@ class ClusterConfig:
 class AppState:
     shape_kind: ShapeKind = ShapeKind.CIRCLE
     shared_size: ClusterSize = field(default_factory=ClusterSize)
-    cluster_count: int = 3
+    cluster_count: int = constants.DEFAULT_CLUSTER_COUNT
     cluster_centers: list[Point] = field(default_factory=list)
     positions_customized: bool = False
     size_overrides_enabled: list[bool] = field(default_factory=list)
     size_overrides: list[ClusterSize] = field(default_factory=list)
-    total_cluster_stars: int = 300
+    total_cluster_stars: int = constants.DEFAULT_TOTAL_CLUSTER_STARS
     distribution_mode: DistributionMode = DistributionMode.EQUAL
-    deviation_percent: float = 20.0
+    deviation_percent: float = constants.DEFAULT_DEVIATION_PERCENT
     manual_counts: list[int] = field(default_factory=list)
-    trash_star_count: int = 40
-    trash_min_distance: float = 25.0
-    viewport_scale: float = 1.0
+    trash_star_count: int = constants.DEFAULT_TRASH_STAR_COUNT
+    trash_min_distance: float = constants.DEFAULT_TRASH_MIN_DISTANCE
+    viewport_scale: float = constants.DEFAULT_VIEWPORT_SCALE
     viewport_offset: Point = field(default_factory=lambda: Point(0.0, 0.0))
 
     def resolved_size(self, index: int) -> ClusterSize:
