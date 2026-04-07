@@ -8,7 +8,7 @@ import gi
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, Gio, Gtk
 
 from . import constants
 from .canvas import StarCanvas
@@ -22,6 +22,7 @@ from .generator import (
     validate_state,
 )
 from .models import AppState, DistributionMode, ShapeKind
+from .preferences import load_last_save_path, save_last_save_path
 
 class StarClusterWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application) -> None:
@@ -29,6 +30,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.set_default_size(constants.WINDOW_DEFAULT_WIDTH, constants.WINDOW_DEFAULT_HEIGHT)
 
         self.state = AppState()
+        self._last_save_path = load_last_save_path()
         ensure_cluster_storage(self.state)
         self._reset_cluster_positions()
         self.state.manual_counts = even_counts(self.state.total_cluster_stars, self.state.cluster_count)
@@ -585,9 +587,26 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             "_Cancel",
         )
         dialog.set_modal(True)
-        dialog.set_current_name(constants.DEFAULT_SAVE_FILENAME)
+        self._configure_save_dialog(dialog)
         dialog.connect("response", self._on_save_response)
         dialog.show()
+
+    def _configure_save_dialog(self, dialog: Gtk.FileChooserNative) -> None:
+        default_path = self._last_save_path
+        if default_path is None:
+            dialog.set_current_name(constants.DEFAULT_SAVE_FILENAME)
+            return
+
+        if default_path.is_dir():
+            folder = default_path
+            filename = constants.DEFAULT_SAVE_FILENAME
+        else:
+            folder = default_path.parent
+            filename = default_path.name
+
+        if folder.exists():
+            dialog.set_current_folder(Gio.File.new_for_path(str(folder)))
+        dialog.set_current_name(filename or constants.DEFAULT_SAVE_FILENAME)
 
     def _on_save_response(self, dialog: Gtk.FileChooserNative, response: int) -> None:
         try:
@@ -606,6 +625,8 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
             generated = generate_star_field(self.state)
             output_path.write_text(format_points_for_export(generated.points), encoding="utf-8")
+            self._last_save_path = output_path
+            save_last_save_path(output_path)
             self._set_status(f"Saved {len(generated.points)} stars to {output_path.name}.", "success")
         except (GenerationError, OSError) as exc:
             self._set_status(str(exc), "error")
