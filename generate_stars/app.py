@@ -10,8 +10,8 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gio, Gtk
 
-from . import constants
 from .canvas import StarCanvas
+from .config import AppConfig, ConfigIssue, initialize_app_config
 from .generator import (
     GenerationError,
     ensure_cluster_storage,
@@ -25,9 +25,11 @@ from .models import AppState, DistributionMode, ShapeKind
 from .preferences import load_last_save_path, save_last_save_path
 
 class StarClusterWindow(Gtk.ApplicationWindow):
-    def __init__(self, application: Gtk.Application) -> None:
-        super().__init__(application=application, title=constants.APP_TITLE)
-        self.set_default_size(constants.WINDOW_DEFAULT_WIDTH, constants.WINDOW_DEFAULT_HEIGHT)
+    def __init__(self, application: Gtk.Application, config: AppConfig, config_issues: list[ConfigIssue]) -> None:
+        self.config = config
+        self._startup_config_issues = list(config_issues)
+        super().__init__(application=application, title=config.app.title)
+        self.set_default_size(config.window.default_width, config.window.default_height)
 
         self.state = AppState()
         self._last_save_path = load_last_save_path()
@@ -38,7 +40,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
         self._syncing_ui = False
         self._space_pressed = False
-        self._status_text = constants.READY_STATUS_TEXT
+        self._status_text = self.config.text.ready_status
         self._status_kind = "neutral"
 
         self._install_key_controller()
@@ -56,8 +58,8 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.set_child(root)
 
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=constants.SIDEBAR_SPACING)
-        sidebar.set_size_request(constants.SIDEBAR_WIDTH, -1)
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.sidebar_spacing)
+        sidebar.set_size_request(self.config.ui.sidebar_width, -1)
         sidebar.add_css_class("sidebar")
         root.append(sidebar)
 
@@ -66,11 +68,11 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         sidebar_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         sidebar.append(sidebar_scroller)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=constants.SIDEBAR_CONTENT_SPACING)
-        content.set_margin_top(constants.SIDEBAR_MARGIN)
-        content.set_margin_bottom(constants.SIDEBAR_MARGIN)
-        content.set_margin_start(constants.SIDEBAR_MARGIN)
-        content.set_margin_end(constants.SIDEBAR_MARGIN)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.sidebar_content_spacing)
+        content.set_margin_top(self.config.ui.sidebar_margin)
+        content.set_margin_bottom(self.config.ui.sidebar_margin)
+        content.set_margin_start(self.config.ui.sidebar_margin)
+        content.set_margin_end(self.config.ui.sidebar_margin)
         sidebar_scroller.set_child(content)
 
         content.append(self._build_shape_section())
@@ -78,10 +80,10 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         content.append(self._build_trash_section())
         content.append(self._build_cluster_editor_section())
 
-        footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=constants.SIDEBAR_FOOTER_SPACING)
-        footer.set_margin_start(constants.SIDEBAR_MARGIN)
-        footer.set_margin_end(constants.SIDEBAR_MARGIN)
-        footer.set_margin_bottom(constants.SIDEBAR_MARGIN)
+        footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.sidebar_footer_spacing)
+        footer.set_margin_start(self.config.ui.sidebar_margin)
+        footer.set_margin_end(self.config.ui.sidebar_margin)
+        footer.set_margin_bottom(self.config.ui.sidebar_margin)
         sidebar.append(footer)
 
         self.generate_button = Gtk.Button(label="Generate")
@@ -100,11 +102,11 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         canvas_shell.add_css_class("canvas-shell")
         root.append(canvas_shell)
 
-        self.canvas = StarCanvas(self.state, self._is_space_pressed)
+        self.canvas = StarCanvas(self.state, self._is_space_pressed, self.config)
         canvas_shell.append(self.canvas)
 
     def _build_panel(self, title: str) -> Gtk.Box:
-        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=constants.PANEL_SPACING)
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.panel_spacing)
         panel.add_css_class("panel")
 
         heading = Gtk.Label(label=title, xalign=0.0)
@@ -113,7 +115,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         return panel
 
     def _build_row(self, label_text: str, widget: Gtk.Widget) -> Gtk.Box:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=constants.ROW_SPACING)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=self.config.ui.row_spacing)
         label = Gtk.Label(label=label_text, xalign=0.0)
         label.set_hexpand(True)
         row.append(label)
@@ -132,13 +134,13 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             lower=lower,
             upper=upper,
             step_increment=step,
-            page_increment=step * constants.SPIN_PAGE_MULTIPLIER,
+            page_increment=step * self.config.ui.spin_page_multiplier,
         )
         spin = Gtk.SpinButton(adjustment=adjustment, digits=digits)
         spin.set_numeric(True)
         spin.set_hexpand(False)
         spin.set_width_chars(
-            constants.INTEGER_SPIN_WIDTH_CHARS if digits == 0 else constants.DECIMAL_SPIN_WIDTH_CHARS
+            self.config.ui.integer_spin_width_chars if digits == 0 else self.config.ui.decimal_spin_width_chars
         )
         return spin
 
@@ -151,7 +153,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.shape_combo.connect("changed", self._on_shape_changed)
         panel.append(self._build_row("Shape", self.shape_combo))
 
-        self.cluster_count_spin = self._make_spin(constants.CLUSTER_COUNT_MIN, constants.CLUSTER_COUNT_MAX, 1)
+        self.cluster_count_spin = self._make_spin(self.config.limits.cluster_count_min, self.config.limits.cluster_count_max, 1)
         self.cluster_count_spin.connect("value-changed", self._on_cluster_count_changed)
         panel.append(self._build_row("Cluster count", self.cluster_count_spin))
 
@@ -159,23 +161,23 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.reset_positions_button.connect("clicked", self._on_reset_positions_clicked)
         panel.append(self.reset_positions_button)
 
-        self.shared_radius_spin = self._make_spin(constants.SIZE_MIN, constants.SIZE_MAX, 1, digits=1)
+        self.shared_radius_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
         self.shared_radius_spin.connect("value-changed", self._on_shared_radius_changed)
         self.shared_radius_row = self._build_row("Radius", self.shared_radius_spin)
         panel.append(self.shared_radius_row)
 
-        self.shared_width_spin = self._make_spin(constants.SIZE_MIN, constants.SIZE_MAX, 1, digits=1)
+        self.shared_width_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
         self.shared_width_spin.connect("value-changed", self._on_shared_width_changed)
         self.shared_width_row = self._build_row("Width", self.shared_width_spin)
         panel.append(self.shared_width_row)
 
-        self.shared_height_spin = self._make_spin(constants.SIZE_MIN, constants.SIZE_MAX, 1, digits=1)
+        self.shared_height_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
         self.shared_height_spin.connect("value-changed", self._on_shared_height_changed)
         self.shared_height_row = self._build_row("Height", self.shared_height_spin)
         panel.append(self.shared_height_row)
 
         hint = Gtk.Label(
-            label=constants.SHAPE_INTERACTION_HINT,
+            label=self.config.text.shape_interaction_hint,
             xalign=0.0,
         )
         hint.set_wrap(True)
@@ -186,7 +188,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _build_distribution_section(self) -> Gtk.Box:
         panel = self._build_panel("Stars")
 
-        self.total_stars_spin = self._make_spin(constants.TOTAL_STARS_MIN, constants.TOTAL_STARS_MAX, 1)
+        self.total_stars_spin = self._make_spin(self.config.limits.total_stars_min, self.config.limits.total_stars_max, 1)
         self.total_stars_spin.connect("value-changed", self._on_total_stars_changed)
         panel.append(self._build_row("Total cluster stars", self.total_stars_spin))
 
@@ -198,8 +200,8 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         panel.append(self._build_row("Distribution", self.distribution_combo))
 
         self.deviation_spin = self._make_spin(
-            constants.DEVIATION_PERCENT_MIN,
-            constants.DEVIATION_PERCENT_MAX,
+            self.config.limits.deviation_percent_min,
+            self.config.limits.deviation_percent_max,
             1,
             digits=1,
         )
@@ -207,12 +209,12 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.deviation_row = self._build_row("Deviation %", self.deviation_spin)
         panel.append(self.deviation_row)
 
-        self.manual_counts_note = Gtk.Label(label=constants.MANUAL_COUNTS_NOTE_TEXT, xalign=0.0)
+        self.manual_counts_note = Gtk.Label(label=self.config.text.manual_counts_note, xalign=0.0)
         self.manual_counts_note.set_wrap(True)
         self.manual_counts_note.add_css_class("dim-label")
         panel.append(self.manual_counts_note)
 
-        self.manual_counts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=constants.CLUSTER_SECTION_SPACING)
+        self.manual_counts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.cluster_section_spacing)
         panel.append(self.manual_counts_box)
         return panel
 
@@ -220,16 +222,16 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         panel = self._build_panel("Trash Stars")
 
         self.trash_count_spin = self._make_spin(
-            constants.TRASH_STAR_COUNT_MIN,
-            constants.TRASH_STAR_COUNT_MAX,
+            self.config.limits.trash_star_count_min,
+            self.config.limits.trash_star_count_max,
             1,
         )
         self.trash_count_spin.connect("value-changed", self._on_trash_count_changed)
         panel.append(self._build_row("Trash star count", self.trash_count_spin))
 
         self.trash_distance_spin = self._make_spin(
-            constants.TRASH_DISTANCE_MIN,
-            constants.TRASH_DISTANCE_MAX,
+            self.config.limits.trash_distance_min,
+            self.config.limits.trash_distance_max,
             1,
             digits=1,
         )
@@ -237,7 +239,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         panel.append(self._build_row("Min edge distance", self.trash_distance_spin))
 
         note = Gtk.Label(
-            label=constants.TRASH_NOTE_TEXT,
+            label=self.config.text.trash_note,
             xalign=0.0,
         )
         note.set_wrap(True)
@@ -252,7 +254,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.cluster_editor_info.set_wrap(True)
         panel.append(self.cluster_editor_info)
 
-        self.cluster_rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=constants.CLUSTER_SECTION_SPACING)
+        self.cluster_rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.cluster_section_spacing)
         panel.append(self.cluster_rows_box)
         return panel
 
@@ -279,7 +281,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
     def _clear_status(self) -> None:
         if self._status_kind != "error":
-            self._status_text = constants.READY_STATUS_TEXT
+            self._status_text = self.config.text.ready_status
             self._status_kind = "neutral"
 
     def _update_status_label(self) -> None:
@@ -347,7 +349,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         else:
             self.generate_button.set_sensitive(True)
             if self._status_kind == "error":
-                self._status_text = constants.READY_STATUS_TEXT
+                self._status_text = self.config.text.ready_status
                 self._status_kind = "neutral"
 
         self.cluster_editor_info.set_text(
@@ -364,7 +366,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         circle_mode = self.state.shape_kind is ShapeKind.CIRCLE
 
         for index in range(self.state.cluster_count):
-            section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=constants.CLUSTER_SECTION_SPACING)
+            section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.cluster_section_spacing)
 
             title = Gtk.Label(label=f"Cluster {index + 1}", xalign=0.0)
             title.add_css_class("panel-title")
@@ -381,17 +383,17 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
             override_size = self.state.size_overrides[index]
             if circle_mode:
-                radius_spin = self._make_spin(constants.SIZE_MIN, constants.SIZE_MAX, 1, digits=1)
+                radius_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
                 radius_spin.set_value(override_size.radius)
                 radius_spin.connect("value-changed", self._on_override_radius_changed, index)
                 size_box.append(self._build_row("Radius", radius_spin))
             else:
-                width_spin = self._make_spin(constants.SIZE_MIN, constants.SIZE_MAX, 1, digits=1)
+                width_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
                 width_spin.set_value(override_size.width)
                 width_spin.connect("value-changed", self._on_override_width_changed, index)
                 size_box.append(self._build_row("Width", width_spin))
 
-                height_spin = self._make_spin(constants.SIZE_MIN, constants.SIZE_MAX, 1, digits=1)
+                height_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
                 height_spin.set_value(override_size.height)
                 height_spin.connect("value-changed", self._on_override_height_changed, index)
                 size_box.append(self._build_row("Height", height_spin))
@@ -406,7 +408,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
         ensure_cluster_storage(self.state)
         for index in range(self.state.cluster_count):
-            manual_spin = self._make_spin(constants.TOTAL_STARS_MIN, constants.TOTAL_STARS_MAX, 1)
+            manual_spin = self._make_spin(self.config.limits.total_stars_min, self.config.limits.total_stars_max, 1)
             manual_spin.set_value(self.state.manual_counts[index])
             manual_spin.connect("value-changed", self._on_manual_count_changed, index)
             self.manual_counts_box.append(self._build_row(f"Cluster {index + 1}", manual_spin))
@@ -459,7 +461,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
     def _on_reset_positions_clicked(self, button: Gtk.Button) -> None:
         self._reset_cluster_positions()
-        self._set_status(constants.RESET_POSITIONS_STATUS_TEXT, "neutral")
+        self._set_status(self.config.text.reset_positions_status, "neutral")
         self._refresh_ui()
 
     def _on_shared_radius_changed(self, spin: Gtk.SpinButton) -> None:
@@ -573,6 +575,15 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         dialog.connect("response", lambda dialog, _: dialog.destroy())
         dialog.show()
 
+    def show_startup_config_issues(self) -> None:
+        if not self._startup_config_issues:
+            return
+        message = "Some config values were ignored and defaults were used:\n\n" + "\n".join(
+            f"{issue.path}: {issue.message}" for issue in self._startup_config_issues
+        )
+        self._startup_config_issues.clear()
+        self._show_error_dialog(message)
+
     def _on_generate_clicked(self, button: Gtk.Button) -> None:
         errors = validate_state(self.state)
         if errors:
@@ -580,7 +591,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             return
 
         dialog = Gtk.FileChooserNative.new(
-            constants.SAVE_DIALOG_TITLE,
+            self.config.text.save_dialog_title,
             self,
             Gtk.FileChooserAction.SAVE,
             "_Save",
@@ -594,19 +605,19 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _configure_save_dialog(self, dialog: Gtk.FileChooserNative) -> None:
         default_path = self._last_save_path
         if default_path is None:
-            dialog.set_current_name(constants.DEFAULT_SAVE_FILENAME)
+            dialog.set_current_name(self.config.defaults.default_save_filename)
             return
 
         if default_path.is_dir():
             folder = default_path
-            filename = constants.DEFAULT_SAVE_FILENAME
+            filename = self.config.defaults.default_save_filename
         else:
             folder = default_path.parent
             filename = default_path.name
 
         if folder.exists():
             dialog.set_current_folder(Gio.File.new_for_path(str(folder)))
-        dialog.set_current_name(filename or constants.DEFAULT_SAVE_FILENAME)
+        dialog.set_current_name(filename or self.config.defaults.default_save_filename)
 
     def _on_save_response(self, dialog: Gtk.FileChooserNative, response: int) -> None:
         try:
@@ -637,8 +648,10 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
 
 class StarClusterApplication(Gtk.Application):
-    def __init__(self) -> None:
-        super().__init__(application_id=constants.APP_ID)
+    def __init__(self, config: AppConfig, config_issues: list[ConfigIssue]) -> None:
+        self.config = config
+        self._config_issues = list(config_issues)
+        super().__init__(application_id=config.app.application_id)
 
     def do_activate(self) -> None:
         settings = Gtk.Settings.get_default()
@@ -648,7 +661,7 @@ class StarClusterApplication(Gtk.Application):
         display = Gdk.Display.get_default()
         if display is not None:
             provider = Gtk.CssProvider()
-            provider.load_from_data(constants.APP_CSS)
+            provider.load_from_data(self.config.app.css)
             Gtk.StyleContext.add_provider_for_display(
                 display,
                 provider,
@@ -657,10 +670,14 @@ class StarClusterApplication(Gtk.Application):
 
         window = self.props.active_window
         if window is None:
-            window = StarClusterWindow(self)
+            window = StarClusterWindow(self, self.config, self._config_issues)
         window.present()
+        if isinstance(window, StarClusterWindow):
+            window.show_startup_config_issues()
+        self._config_issues.clear()
 
 
 def main(argv: list[str] | None = None) -> int:
-    app = StarClusterApplication()
+    config, config_issues = initialize_app_config(create_missing=True)
+    app = StarClusterApplication(config, config_issues)
     return app.run(argv or sys.argv)

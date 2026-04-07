@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import math
 import random
 
-from . import constants
+from .config import AppConfig, get_app_config
 from .models import AppState, ClusterConfig, ClusterSize, DistributionMode, Point, ShapeKind
 from .shapes import BoundingBox, get_shape
 
@@ -114,19 +114,24 @@ def validate_state(state: AppState) -> list[str]:
     return errors
 
 
-def generate_ring_centers(shape_kind: ShapeKind, sizes: Sequence[ClusterSize]) -> list[Point]:
+def generate_ring_centers(
+    shape_kind: ShapeKind,
+    sizes: Sequence[ClusterSize],
+    config: AppConfig | None = None,
+) -> list[Point]:
     count = len(sizes)
     if count <= 0:
         return []
 
+    config = config or get_app_config()
     spans = [size.max_span(shape_kind) for size in sizes]
     step = math.tau / count
 
     centers: list[Point] = []
     for index, span in enumerate(spans):
         radius = max(
-            count * (span + constants.LAYOUT_RING_PADDING) / math.tau,
-            span / 2.0 + constants.LAYOUT_ORIGIN_PADDING,
+            count * (span + config.generation.layout_ring_padding) / math.tau,
+            span / 2.0 + config.generation.layout_origin_padding,
         )
         centers.append(
             Point(
@@ -187,14 +192,19 @@ def allocate_cluster_counts(
     return counts
 
 
-def combined_bounding_box(cluster_configs: list[ClusterConfig], shape_kind: ShapeKind) -> BoundingBox:
+def combined_bounding_box(
+    cluster_configs: list[ClusterConfig],
+    shape_kind: ShapeKind,
+    config: AppConfig | None = None,
+) -> BoundingBox:
+    config = config or get_app_config()
     shape = get_shape(shape_kind)
     if not cluster_configs:
         return BoundingBox(
-            -constants.EMPTY_CLUSTER_BOUNDS_LIMIT,
-            -constants.EMPTY_CLUSTER_BOUNDS_LIMIT,
-            constants.EMPTY_CLUSTER_BOUNDS_LIMIT,
-            constants.EMPTY_CLUSTER_BOUNDS_LIMIT,
+            -config.generation.empty_cluster_bounds_limit,
+            -config.generation.empty_cluster_bounds_limit,
+            config.generation.empty_cluster_bounds_limit,
+            config.generation.empty_cluster_bounds_limit,
         )
 
     first = shape.bounding_box(cluster_configs[0].center, cluster_configs[0].size)
@@ -228,18 +238,26 @@ def generate_trash_points(
     count: int,
     min_edge_distance: float,
     rng: random.Random,
+    config: AppConfig | None = None,
 ) -> list[Point]:
     if count <= 0:
         return []
 
+    config = config or get_app_config()
     shape = get_shape(shape_kind)
-    base_bounds = combined_bounding_box(cluster_configs, shape_kind)
-    padding = max(constants.TRASH_BOUNDS_PADDING_MIN, min_edge_distance + constants.TRASH_BOUNDS_PADDING_EXTRA)
+    base_bounds = combined_bounding_box(cluster_configs, shape_kind, config)
+    padding = max(
+        config.generation.trash_bounds_padding_min,
+        min_edge_distance + config.generation.trash_bounds_padding_extra,
+    )
     bounds = base_bounds.expanded(padding)
 
     points: list[Point] = []
     attempts = 0
-    max_attempts = max(constants.TRASH_PLACEMENT_ATTEMPTS_MIN, count * constants.TRASH_PLACEMENT_ATTEMPTS_PER_STAR)
+    max_attempts = max(
+        config.generation.trash_placement_attempts_min,
+        count * config.generation.trash_placement_attempts_per_star,
+    )
     while len(points) < count and attempts < max_attempts:
         attempts += 1
         candidate = Point(
@@ -265,6 +283,7 @@ def generate_star_field(state: AppState, rng: random.Random | None = None) -> Ge
     if errors:
         raise GenerationError(errors[0])
 
+    config = get_app_config()
     rng = rng or random.Random()
     cluster_configs = resolve_cluster_configs(state)
     cluster_counts = allocate_cluster_counts(
@@ -284,6 +303,7 @@ def generate_star_field(state: AppState, rng: random.Random | None = None) -> Ge
             count=state.trash_star_count,
             min_edge_distance=state.trash_min_distance,
             rng=rng,
+            config=config,
         )
     )
     rng.shuffle(points)
@@ -296,8 +316,10 @@ def generate_star_field(state: AppState, rng: random.Random | None = None) -> Ge
 
 def format_points_for_export(
     points: list[Point],
-    precision: int = constants.EXPORT_COORDINATE_PRECISION,
+    precision: int | None = None,
 ) -> str:
+    if precision is None:
+        precision = get_app_config().generation.export_coordinate_precision
     lines = ["X Y"]
     for point in points:
         x_value = f"{point.x:.{precision}f}".replace(".", ",")
