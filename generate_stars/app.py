@@ -222,7 +222,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         panel.append(self.shared_height_row)
 
         hint = Gtk.Label(
-            label="Plain LMB drags a cluster center. Hold Space and drag to pan. Use the mouse wheel to zoom.",
+            label="Plain LMB drags a cluster from anywhere inside it. Hold Space and drag to pan. Use the mouse wheel to zoom.",
             xalign=0.0,
         )
         hint.set_wrap(True)
@@ -325,6 +325,11 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self.state.shape_kind,
             [self.state.resolved_size(index) for index in range(self.state.cluster_count)],
         )
+        self.state.positions_customized = False
+
+    def _sync_positions_for_size_change(self) -> None:
+        if not self.state.positions_customized:
+            self._reset_cluster_positions()
 
     def _refresh_ui(self, rebuild_cluster_rows: bool = False) -> None:
         circle_mode = self.state.shape_kind is ShapeKind.CIRCLE
@@ -433,6 +438,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if not active_id:
             return
         self.state.shape_kind = ShapeKind(active_id)
+        self._reset_cluster_positions()
         self._clear_status()
         self._refresh_ui(rebuild_cluster_rows=True)
 
@@ -455,6 +461,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if self._syncing_ui:
             return
         self.state.shared_size.radius = spin.get_value()
+        self._sync_positions_for_size_change()
         self._clear_status()
         self._refresh_ui()
 
@@ -462,6 +469,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if self._syncing_ui:
             return
         self.state.shared_size.width = spin.get_value()
+        self._sync_positions_for_size_change()
         self._clear_status()
         self._refresh_ui()
 
@@ -469,6 +477,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if self._syncing_ui:
             return
         self.state.shared_size.height = spin.get_value()
+        self._sync_positions_for_size_change()
         self._clear_status()
         self._refresh_ui()
 
@@ -517,21 +526,25 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if self._syncing_ui:
             return
         self.state.size_overrides_enabled[index] = button.get_active()
+        self._sync_positions_for_size_change()
         self._clear_status()
         self._refresh_ui(rebuild_cluster_rows=True)
 
     def _on_override_radius_changed(self, spin: Gtk.SpinButton, index: int) -> None:
         self.state.size_overrides[index].radius = spin.get_value()
+        self._sync_positions_for_size_change()
         self._clear_status()
         self._refresh_ui()
 
     def _on_override_width_changed(self, spin: Gtk.SpinButton, index: int) -> None:
         self.state.size_overrides[index].width = spin.get_value()
+        self._sync_positions_for_size_change()
         self._clear_status()
         self._refresh_ui()
 
     def _on_override_height_changed(self, spin: Gtk.SpinButton, index: int) -> None:
         self.state.size_overrides[index].height = spin.get_value()
+        self._sync_positions_for_size_change()
         self._clear_status()
         self._refresh_ui()
 

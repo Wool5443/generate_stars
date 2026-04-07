@@ -23,9 +23,9 @@ class Point:
 
 @dataclass(slots=True)
 class ClusterSize:
-    radius: float = 60.0
-    width: float = 140.0
-    height: float = 90.0
+    radius: float = 10.0
+    width: float = 10.0
+    height: float = 10.0
 
     def copy(self) -> "ClusterSize":
         return ClusterSize(radius=self.radius, width=self.width, height=self.height)
@@ -48,6 +48,7 @@ class AppState:
     shared_size: ClusterSize = field(default_factory=ClusterSize)
     cluster_count: int = 3
     cluster_centers: list[Point] = field(default_factory=list)
+    positions_customized: bool = False
     size_overrides_enabled: list[bool] = field(default_factory=list)
     size_overrides: list[ClusterSize] = field(default_factory=list)
     total_cluster_stars: int = 300
@@ -63,4 +64,3 @@ class AppState:
         if 0 <= index < len(self.size_overrides_enabled) and self.size_overrides_enabled[index]:
             return self.size_overrides[index]
         return self.shared_size
-

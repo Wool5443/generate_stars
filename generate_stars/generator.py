@@ -110,13 +110,16 @@ def generate_ring_centers(shape_kind: ShapeKind, sizes: Sequence[ClusterSize]) -
         return []
 
     spans = [size.max_span(shape_kind) for size in sizes]
-    smallest_span = min(spans)
-    base_radius = max(150.0, count * (smallest_span + 40.0) / math.tau)
     step = math.tau / count
+    ring_padding = 40.0
+    origin_padding = 24.0
 
     centers: list[Point] = []
     for index, span in enumerate(spans):
-        radius = max(base_radius + (span - smallest_span), span / 2.0 + 40.0)
+        radius = max(
+            count * (span + ring_padding) / math.tau,
+            span / 2.0 + origin_padding,
+        )
         centers.append(
             Point(
                 x=math.cos(step * index) * radius,

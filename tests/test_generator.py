@@ -16,6 +16,12 @@ from generate_stars.shapes import get_shape
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_cluster_size_defaults_are_ten(self) -> None:
+        size = ClusterSize()
+        self.assertEqual(size.radius, 10.0)
+        self.assertEqual(size.width, 10.0)
+        self.assertEqual(size.height, 10.0)
+
     def test_equal_distribution_preserves_total(self) -> None:
         rng = random.Random(7)
         counts = allocate_cluster_counts(
@@ -95,6 +101,19 @@ class GeneratorTests(unittest.TestCase):
         distances = [math.hypot(center.x, center.y) for center in centers]
         self.assertLess(distances[0], distances[2])
         self.assertLess(distances[2], distances[1])
+
+    def test_generate_ring_centers_changes_radius_for_equal_shared_sizes(self) -> None:
+        small_centers = generate_ring_centers(
+            ShapeKind.CIRCLE,
+            [ClusterSize(radius=20.0) for _ in range(3)],
+        )
+        large_centers = generate_ring_centers(
+            ShapeKind.CIRCLE,
+            [ClusterSize(radius=60.0) for _ in range(3)],
+        )
+        small_distance = math.hypot(small_centers[0].x, small_centers[0].y)
+        large_distance = math.hypot(large_centers[0].x, large_centers[0].y)
+        self.assertLess(small_distance, large_distance)
 
     def test_generate_star_field_combines_cluster_and_trash_counts(self) -> None:
         rng = random.Random(23)

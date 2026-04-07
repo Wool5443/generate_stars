@@ -78,10 +78,14 @@ class StarCanvas(Gtk.DrawingArea):
         max_y = max(top_left.y, bottom_right.y)
         return min_x, max_x, min_y, max_y
 
-    def _hit_test_center(self, x: float, y: float) -> int | None:
-        for index in range(len(self.state.cluster_centers) - 1, -1, -1):
-            screen_point = self.world_to_screen(self.state.cluster_centers[index])
-            if math.hypot(screen_point.x - x, screen_point.y - y) <= self._marker_radius_px + 3.0:
+    def _hit_test_cluster(self, x: float, y: float) -> int | None:
+        world_point = self.screen_to_world(x, y)
+        shape = get_shape(self.state.shape_kind)
+        configs = resolve_cluster_configs(self.state)
+        tolerance = 6.0 / max(self.state.viewport_scale, 1e-6)
+
+        for index in range(len(configs) - 1, -1, -1):
+            if shape.edge_distance(world_point, configs[index].center, configs[index].size) <= tolerance:
                 return index
         return None
 
@@ -96,7 +100,7 @@ class StarCanvas(Gtk.DrawingArea):
             self._drag_mode = "pan"
             return
 
-        hit_index = self._hit_test_center(x, y)
+        hit_index = self._hit_test_cluster(x, y)
         if hit_index is not None:
             self._drag_mode = "center"
             self._active_center_index = hit_index
@@ -131,6 +135,8 @@ class StarCanvas(Gtk.DrawingArea):
             center = self.state.cluster_centers[self._active_center_index]
             center.x += dx / scale
             center.y -= dy / scale
+            if dx != 0.0 or dy != 0.0:
+                self.state.positions_customized = True
             self.queue_draw()
 
     def _on_leave(self, controller: Gtk.EventControllerMotion) -> None:
