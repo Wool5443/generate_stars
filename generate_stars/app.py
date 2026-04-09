@@ -613,6 +613,9 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if keyval in (Gdk.KEY_r, Gdk.KEY_R):
             self._set_active_tool(CanvasTool.RECTANGLE)
             return True
+        if keyval == Gdk.KEY_Escape:
+            self._clear_selected_clusters()
+            return True
         if keyval == Gdk.KEY_Delete:
             self._delete_selected_clusters()
             return True
@@ -636,6 +639,13 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self._sync_total_stars_for_manual_mode()
         self._clear_status()
         self._refresh_ui(rebuild_manual_rows=True)
+
+    def _clear_selected_clusters(self) -> None:
+        if not self.state.selected_cluster_ids:
+            return
+        self.state.clear_selection()
+        self._clear_status()
+        self._refresh_ui()
 
     def _on_tool_button_toggled(self, button: Gtk.ToggleButton, tool: CanvasTool) -> None:
         if self._syncing_ui or not button.get_active():
