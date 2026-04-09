@@ -44,6 +44,10 @@ class DefaultsConfig:
     cluster_count: int
     total_cluster_stars: int
     deviation_percent: float
+    star_parameter_enabled: bool
+    star_parameter_name: str
+    star_parameter_min_value: float
+    star_parameter_max_value: float
     trash_star_count: int
     trash_min_distance: float
     viewport_scale: float
@@ -60,6 +64,8 @@ class LimitsConfig:
     total_stars_max: int
     deviation_percent_min: float
     deviation_percent_max: float
+    star_parameter_value_min: float
+    star_parameter_value_max: float
     trash_star_count_min: int
     trash_star_count_max: int
     trash_distance_min: float
@@ -351,6 +357,34 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             "defaults.deviation_percent",
             0.0,
         ),
+        star_parameter_enabled=_bool_value(
+            default_values,
+            default_defaults,
+            "star_parameter_enabled",
+            issues,
+            "defaults.star_parameter_enabled",
+        ),
+        star_parameter_name=_string_value(
+            default_values,
+            default_defaults,
+            "star_parameter_name",
+            issues,
+            "defaults.star_parameter_name",
+        ),
+        star_parameter_min_value=_float_value(
+            default_values,
+            default_defaults,
+            "star_parameter_min_value",
+            issues,
+            "defaults.star_parameter_min_value",
+        ),
+        star_parameter_max_value=_float_value(
+            default_values,
+            default_defaults,
+            "star_parameter_max_value",
+            issues,
+            "defaults.star_parameter_max_value",
+        ),
         trash_star_count=_int_value(
             default_values,
             default_defaults,
@@ -384,6 +418,18 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             "defaults.default_save_filename",
         ),
     )
+    if defaults_config.star_parameter_max_value < defaults_config.star_parameter_min_value:
+        issues.append(
+            ConfigIssue(
+                "defaults.star_parameter_max_value",
+                "Must be greater than or equal to defaults.star_parameter_min_value.",
+            )
+        )
+        defaults_config = replace(
+            defaults_config,
+            star_parameter_min_value=float(default_defaults["star_parameter_min_value"]),
+            star_parameter_max_value=float(default_defaults["star_parameter_max_value"]),
+        )
 
     limit_values = values["limits"]
     limit_defaults = defaults["limits"]
@@ -423,6 +469,20 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             issues,
             "limits.deviation_percent_max",
             0.0,
+        ),
+        star_parameter_value_min=_float_value(
+            limit_values,
+            limit_defaults,
+            "star_parameter_value_min",
+            issues,
+            "limits.star_parameter_value_min",
+        ),
+        star_parameter_value_max=_float_value(
+            limit_values,
+            limit_defaults,
+            "star_parameter_value_max",
+            issues,
+            "limits.star_parameter_value_max",
         ),
         trash_star_count_min=_int_value(
             limit_values,
@@ -869,6 +929,7 @@ def _validate_limits(limits: LimitsConfig, defaults: dict[str, Any], issues: lis
         ("size_min", "size_max"),
         ("total_stars_min", "total_stars_max"),
         ("deviation_percent_min", "deviation_percent_max"),
+        ("star_parameter_value_min", "star_parameter_value_max"),
         ("trash_star_count_min", "trash_star_count_max"),
         ("trash_distance_min", "trash_distance_max"),
     )
@@ -899,6 +960,20 @@ def _string_value(
         return value
     issues.append(ConfigIssue(path, "Expected a non-empty string."))
     return str(defaults[key])
+
+
+def _bool_value(
+    values: dict[str, Any],
+    defaults: dict[str, Any],
+    key: str,
+    issues: list[ConfigIssue],
+    path: str,
+) -> bool:
+    value = values.get(key, defaults[key])
+    if isinstance(value, bool):
+        return value
+    issues.append(ConfigIssue(path, "Expected true or false."))
+    return bool(defaults[key])
 
 
 def _int_value(

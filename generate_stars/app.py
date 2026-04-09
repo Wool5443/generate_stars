@@ -77,6 +77,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
         content.append(self._build_shape_section())
         content.append(self._build_distribution_section())
+        content.append(self._build_parameter_section())
         content.append(self._build_trash_section())
         content.append(self._build_cluster_editor_section())
 
@@ -218,6 +219,43 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         panel.append(self.manual_counts_box)
         return panel
 
+    def _build_parameter_section(self) -> Gtk.Box:
+        panel = self._build_panel("Star Parameter")
+
+        self.parameter_enabled_check = Gtk.CheckButton(label="Enable third parameter")
+        self.parameter_enabled_check.connect("toggled", self._on_parameter_enabled_toggled)
+        panel.append(self.parameter_enabled_check)
+
+        self.parameter_fields_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=self.config.ui.cluster_section_spacing,
+        )
+        panel.append(self.parameter_fields_box)
+
+        self.parameter_name_entry = Gtk.Entry()
+        self.parameter_name_entry.set_width_chars(max(12, self.config.ui.decimal_spin_width_chars))
+        self.parameter_name_entry.connect("changed", self._on_parameter_name_changed)
+        self.parameter_fields_box.append(self._build_row("Name", self.parameter_name_entry))
+
+        self.parameter_min_spin = self._make_spin(
+            self.config.limits.star_parameter_value_min,
+            self.config.limits.star_parameter_value_max,
+            0.1,
+            digits=3,
+        )
+        self.parameter_min_spin.connect("value-changed", self._on_parameter_min_changed)
+        self.parameter_fields_box.append(self._build_row("Min", self.parameter_min_spin))
+
+        self.parameter_max_spin = self._make_spin(
+            self.config.limits.star_parameter_value_min,
+            self.config.limits.star_parameter_value_max,
+            0.1,
+            digits=3,
+        )
+        self.parameter_max_spin.connect("value-changed", self._on_parameter_max_changed)
+        self.parameter_fields_box.append(self._build_row("Max", self.parameter_max_spin))
+        return panel
+
     def _build_trash_section(self) -> Gtk.Box:
         panel = self._build_panel("Trash Stars")
 
@@ -269,6 +307,10 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self.total_stars_spin.set_value(self.state.total_cluster_stars)
             self.distribution_combo.set_active_id(self.state.distribution_mode.value)
             self.deviation_spin.set_value(self.state.deviation_percent)
+            self.parameter_enabled_check.set_active(self.state.star_parameter.enabled)
+            self.parameter_name_entry.set_text(self.state.star_parameter.name)
+            self.parameter_min_spin.set_value(self.state.star_parameter.min_value)
+            self.parameter_max_spin.set_value(self.state.star_parameter.max_value)
             self.trash_count_spin.set_value(self.state.trash_star_count)
             self.trash_distance_spin.set_value(self.state.trash_min_distance)
         finally:
@@ -331,6 +373,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.deviation_row.set_visible(self.state.distribution_mode is DistributionMode.DEVIATION)
         self.manual_counts_note.set_visible(manual_mode)
         self.manual_counts_box.set_visible(manual_mode)
+        self.parameter_fields_box.set_sensitive(self.state.star_parameter.enabled)
         self.reset_positions_button.set_sensitive(self.state.cluster_count > 0)
         self.total_stars_spin.set_sensitive(not manual_mode)
 
@@ -518,6 +561,34 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self._clear_status()
         self._refresh_ui()
 
+    def _on_parameter_enabled_toggled(self, button: Gtk.CheckButton) -> None:
+        if self._syncing_ui:
+            return
+        self.state.star_parameter.enabled = button.get_active()
+        self._clear_status()
+        self._refresh_ui()
+
+    def _on_parameter_name_changed(self, entry: Gtk.Entry) -> None:
+        if self._syncing_ui:
+            return
+        self.state.star_parameter.name = entry.get_text()
+        self._clear_status()
+        self._refresh_ui()
+
+    def _on_parameter_min_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.state.star_parameter.min_value = spin.get_value()
+        self._clear_status()
+        self._refresh_ui()
+
+    def _on_parameter_max_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.state.star_parameter.max_value = spin.get_value()
+        self._clear_status()
+        self._refresh_ui()
+
     def _on_trash_count_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
@@ -635,10 +706,14 @@ class StarClusterWindow(Gtk.ApplicationWindow):
                 output_path = output_path.with_suffix(".txt") if output_path.suffix else Path(f"{output_path}.txt")
 
             generated = generate_star_field(self.state)
-            output_path.write_text(format_points_for_export(generated.points), encoding="utf-8")
+            parameter_name = self.state.star_parameter.name.strip() if self.state.star_parameter.enabled else None
+            output_path.write_text(
+                format_points_for_export(generated.stars, parameter_name=parameter_name),
+                encoding="utf-8",
+            )
             self._last_save_path = output_path
             save_last_save_path(output_path)
-            self._set_status(f"Saved {len(generated.points)} stars to {output_path.name}.", "success")
+            self._set_status(f"Saved {len(generated.stars)} stars to {output_path.name}.", "success")
         except (GenerationError, OSError) as exc:
             self._set_status(str(exc), "error")
             self._show_error_dialog(str(exc))

@@ -6,7 +6,7 @@ import math
 import random
 
 from .config import AppConfig, get_app_config
-from .models import AppState, ClusterConfig, ClusterSize, DistributionMode, Point, ShapeKind
+from .models import AppState, ClusterConfig, ClusterSize, DistributionMode, Point, ShapeKind, StarParameterConfig, StarRecord
 from .shapes import BoundingBox, get_shape
 
 
@@ -18,7 +18,11 @@ class GenerationError(RuntimeError):
 class GeneratedField:
     cluster_configs: list[ClusterConfig]
     cluster_counts: list[int]
-    points: list[Point]
+    stars: list[StarRecord]
+
+    @property
+    def points(self) -> list[Point]:
+        return [star.point for star in self.stars]
 
 
 def even_counts(total: int, buckets: int) -> list[int]:
@@ -104,6 +108,12 @@ def validate_state(state: AppState) -> list[str]:
 
     if state.distribution_mode is DistributionMode.DEVIATION and state.deviation_percent < 0.0:
         errors.append("Deviation percent cannot be negative.")
+
+    if state.star_parameter.enabled:
+        if not state.star_parameter.name.strip():
+            errors.append("Star parameter name cannot be empty.")
+        if state.star_parameter.max_value < state.star_parameter.min_value:
+            errors.append("Star parameter max must be greater than or equal to min.")
 
     if state.distribution_mode is DistributionMode.MANUAL:
         if any(count < 0 for count in state.manual_counts):
@@ -278,6 +288,24 @@ def generate_trash_points(
     return points
 
 
+def generate_star_records(
+    points: Sequence[Point],
+    parameter: StarParameterConfig,
+    rng: random.Random,
+) -> list[StarRecord]:
+    if not parameter.enabled:
+        return [StarRecord(point.x, point.y) for point in points]
+
+    return [
+        StarRecord(
+            point.x,
+            point.y,
+            rng.uniform(parameter.min_value, parameter.max_value),
+        )
+        for point in points
+    ]
+
+
 def generate_star_field(state: AppState, rng: random.Random | None = None) -> GeneratedField:
     errors = validate_state(state)
     if errors:
@@ -306,23 +334,47 @@ def generate_star_field(state: AppState, rng: random.Random | None = None) -> Ge
             config=config,
         )
     )
-    rng.shuffle(points)
+    stars = generate_star_records(points, state.star_parameter, rng)
+    rng.shuffle(stars)
     return GeneratedField(
         cluster_configs=cluster_configs,
         cluster_counts=cluster_counts,
-        points=points,
+        stars=stars,
     )
 
 
 def format_points_for_export(
-    points: list[Point],
+    stars: Sequence[Point | StarRecord],
+    parameter_name: str | None = None,
     precision: int | None = None,
 ) -> str:
     if precision is None:
         precision = get_app_config().generation.export_coordinate_precision
-    lines = ["X Y"]
-    for point in points:
-        x_value = f"{point.x:.{precision}f}".replace(".", ",")
-        y_value = f"{point.y:.{precision}f}".replace(".", ",")
+
+    export_parameter_name = parameter_name.strip() if parameter_name and parameter_name.strip() else None
+    has_parameter_values = any(isinstance(star, StarRecord) and star.parameter_value is not None for star in stars)
+    if export_parameter_name is None and has_parameter_values:
+        export_parameter_name = get_app_config().defaults.star_parameter_name
+
+    lines = [f"X Y {export_parameter_name}" if export_parameter_name else "X Y"]
+    for star in stars:
+        if isinstance(star, StarRecord):
+            x = star.x
+            y = star.y
+            parameter_value = star.parameter_value
+        else:
+            x = star.x
+            y = star.y
+            parameter_value = None
+
+        x_value = f"{x:.{precision}f}".replace(".", ",")
+        y_value = f"{y:.{precision}f}".replace(".", ",")
+        if export_parameter_name:
+            if parameter_value is None:
+                raise ValueError("Parameter export requires a value for every star.")
+            parameter_text = f"{parameter_value:.{precision}f}".replace(".", ",")
+            lines.append(f"{x_value} {y_value} {parameter_text}")
+            continue
+
         lines.append(f"{x_value} {y_value}")
     return "\n".join(lines) + "\n"

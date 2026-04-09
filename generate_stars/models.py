@@ -24,6 +24,25 @@ class Point:
 
 
 @dataclass(slots=True)
+class StarParameterConfig:
+    enabled: bool = field(default_factory=lambda: get_app_config().defaults.star_parameter_enabled)
+    name: str = field(default_factory=lambda: get_app_config().defaults.star_parameter_name)
+    min_value: float = field(default_factory=lambda: get_app_config().defaults.star_parameter_min_value)
+    max_value: float = field(default_factory=lambda: get_app_config().defaults.star_parameter_max_value)
+
+
+@dataclass(slots=True)
+class StarRecord:
+    x: float
+    y: float
+    parameter_value: float | None = None
+
+    @property
+    def point(self) -> Point:
+        return Point(self.x, self.y)
+
+
+@dataclass(slots=True)
 class ClusterSize:
     radius: float = field(default_factory=lambda: get_app_config().defaults.cluster_radius)
     width: float = field(default_factory=lambda: get_app_config().defaults.cluster_width)
@@ -56,6 +75,7 @@ class AppState:
     total_cluster_stars: int = field(default_factory=lambda: get_app_config().defaults.total_cluster_stars)
     distribution_mode: DistributionMode = DistributionMode.EQUAL
     deviation_percent: float = field(default_factory=lambda: get_app_config().defaults.deviation_percent)
+    star_parameter: StarParameterConfig = field(default_factory=StarParameterConfig)
     manual_counts: list[int] = field(default_factory=list)
     trash_star_count: int = field(default_factory=lambda: get_app_config().defaults.trash_star_count)
     trash_min_distance: float = field(default_factory=lambda: get_app_config().defaults.trash_min_distance)

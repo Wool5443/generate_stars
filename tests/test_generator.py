@@ -11,8 +11,18 @@ from generate_stars.generator import (
     generate_ring_centers,
     generate_star_field,
     generate_trash_points,
+    validate_state,
 )
-from generate_stars.models import AppState, ClusterConfig, ClusterSize, DistributionMode, Point, ShapeKind
+from generate_stars.models import (
+    AppState,
+    ClusterConfig,
+    ClusterSize,
+    DistributionMode,
+    Point,
+    ShapeKind,
+    StarParameterConfig,
+    StarRecord,
+)
 from generate_stars.shapes import get_shape
 
 
@@ -107,6 +117,19 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(payload.splitlines()[1], "1,250 -3,500")
         self.assertEqual(payload.splitlines()[2], "0,000 2,125")
 
+    def test_export_format_includes_third_parameter(self) -> None:
+        payload = format_points_for_export(
+            [
+                StarRecord(1.25, -3.5, 0.5),
+                StarRecord(0.0, 2.125, -1.75),
+            ],
+            parameter_name="Mass",
+            precision=3,
+        )
+        self.assertEqual(payload.splitlines()[0], "X Y Mass")
+        self.assertEqual(payload.splitlines()[1], "1,250 -3,500 0,500")
+        self.assertEqual(payload.splitlines()[2], "0,000 2,125 -1,750")
+
     def test_generate_ring_centers_moves_smaller_clusters_closer_to_origin(self) -> None:
         centers = generate_ring_centers(
             ShapeKind.CIRCLE,
@@ -141,6 +164,28 @@ class GeneratorTests(unittest.TestCase):
         distance = math.hypot(centers[0].x, centers[0].y)
         self.assertEqual(distance - 10.0, 5.0)
 
+    def test_validate_state_rejects_blank_star_parameter_name(self) -> None:
+        state = AppState(
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="   ",
+                min_value=0.0,
+                max_value=1.0,
+            )
+        )
+        self.assertIn("Star parameter name cannot be empty.", validate_state(state))
+
+    def test_validate_state_rejects_invalid_star_parameter_range(self) -> None:
+        state = AppState(
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Mass",
+                min_value=2.0,
+                max_value=1.0,
+            )
+        )
+        self.assertIn("Star parameter max must be greater than or equal to min.", validate_state(state))
+
     def test_generate_star_field_combines_cluster_and_trash_counts(self) -> None:
         rng = random.Random(23)
         state = AppState(
@@ -155,7 +200,33 @@ class GeneratorTests(unittest.TestCase):
         state.manual_counts = [6, 6]
         generated = generate_star_field(state, rng=rng)
         self.assertEqual(sum(generated.cluster_counts), 12)
-        self.assertEqual(len(generated.points), 15)
+        self.assertEqual(len(generated.stars), 15)
+
+    def test_generate_star_field_adds_parameter_to_every_star(self) -> None:
+        rng = random.Random(29)
+        state = AppState(
+            shape_kind=ShapeKind.CIRCLE,
+            cluster_count=2,
+            total_cluster_stars=12,
+            distribution_mode=DistributionMode.EQUAL,
+            trash_star_count=3,
+            trash_min_distance=10.0,
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Mass",
+                min_value=-1.5,
+                max_value=2.5,
+            ),
+        )
+        state.cluster_centers = [Point(-80.0, 0.0), Point(80.0, 0.0)]
+        state.manual_counts = [6, 6]
+        generated = generate_star_field(state, rng=rng)
+        self.assertEqual(len(generated.stars), 15)
+        for star in generated.stars:
+            self.assertIsNotNone(star.parameter_value)
+            assert star.parameter_value is not None
+            self.assertGreaterEqual(star.parameter_value, -1.5)
+            self.assertLessEqual(star.parameter_value, 2.5)
 
 
 if __name__ == "__main__":
