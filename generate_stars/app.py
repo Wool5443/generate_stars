@@ -600,6 +600,10 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if self._focus_blocks_shortcuts():
             return False
 
+        if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_a, Gdk.KEY_A):
+            self._select_all_clusters()
+            return True
+
         if keyval == Gdk.KEY_space:
             self._space_pressed = True
             return False
@@ -644,6 +648,13 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if not self.state.selected_cluster_ids:
             return
         self.state.clear_selection()
+        self._clear_status()
+        self._refresh_ui()
+
+    def _select_all_clusters(self) -> None:
+        if not self.state.clusters:
+            return
+        self.state.selected_cluster_ids = [cluster.cluster_id for cluster in self.state.clusters]
         self._clear_status()
         self._refresh_ui()
 
