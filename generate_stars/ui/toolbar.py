@@ -8,24 +8,26 @@ from gi.repository import Gtk
 
 from ..config import AppConfig
 from ..controllers.view_models import ToolbarViewModel
+from ..localization import get_localizer
 from ..models import CanvasTool
 
 
 class CanvasToolbarView(Gtk.Box):
     def __init__(self, config: AppConfig) -> None:
+        localizer = get_localizer()
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=config.ui.panel_spacing)
         self.add_css_class("panel")
         self._syncing = False
 
         button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=config.ui.row_spacing)
 
-        self.undo_button = Gtk.Button(label="Undo")
-        self.redo_button = Gtk.Button(label="Redo")
+        self.undo_button = Gtk.Button(label=localizer.text("ui.toolbar.undo"))
+        self.redo_button = Gtk.Button(label=localizer.text("ui.toolbar.redo"))
 
-        self.select_tool_button = Gtk.ToggleButton(label="Select (V)")
-        self.circle_tool_button = Gtk.ToggleButton(label="Circle (C)")
-        self.rectangle_tool_button = Gtk.ToggleButton(label="Rectangle (R)")
-        self.polygon_tool_button = Gtk.ToggleButton(label="Polygon (P)")
+        self.select_tool_button = Gtk.ToggleButton(label=f"{localizer.text('ui.tool.select')} (V)")
+        self.circle_tool_button = Gtk.ToggleButton(label=f"{localizer.text('ui.tool.circle')} (C)")
+        self.rectangle_tool_button = Gtk.ToggleButton(label=f"{localizer.text('ui.tool.rectangle')} (R)")
+        self.polygon_tool_button = Gtk.ToggleButton(label=f"{localizer.text('ui.tool.polygon')} (P)")
 
         self.circle_tool_button.set_group(self.select_tool_button)
         self.rectangle_tool_button.set_group(self.select_tool_button)

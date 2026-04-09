@@ -7,12 +7,14 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from ..config import AppConfig
+from ..localization import get_localizer
 
 
 class PanelView(Gtk.Box):
     def __init__(self, title: str, config: AppConfig) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=config.ui.panel_spacing)
         self.config = config
+        self.localizer = get_localizer()
         self.add_css_class("panel")
 
         heading = Gtk.Label(label=title, xalign=0.0)

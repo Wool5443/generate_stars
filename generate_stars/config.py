@@ -27,6 +27,7 @@ class ConfigIssue:
 class AppSection:
     application_id: str
     title: str
+    language: str
     css: str
 
 
@@ -244,6 +245,13 @@ def get_config_issues() -> tuple[ConfigIssue, ...]:
     return _CACHED_ISSUES
 
 
+def set_app_config(config: AppConfig, issues: list[ConfigIssue] | tuple[ConfigIssue, ...] | None = None) -> None:
+    global _CACHED_CONFIG, _CACHED_ISSUES
+    _CACHED_CONFIG = config
+    if issues is not None:
+        _CACHED_ISSUES = tuple(issues)
+
+
 @lru_cache(maxsize=1)
 def _default_config_data() -> dict[str, Any]:
     try:
@@ -297,6 +305,7 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
     app = AppSection(
         application_id=_string_value(app_values, app_defaults, "application_id", issues, "app.application_id"),
         title=_string_value(app_values, app_defaults, "title", issues, "app.title"),
+        language=_string_value(app_values, app_defaults, "language", issues, "app.language"),
         css=_string_value(app_values, app_defaults, "css", issues, "app.css"),
     )
 

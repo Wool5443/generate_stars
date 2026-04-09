@@ -7,6 +7,7 @@ from typing import Callable, Sequence
 from ..config import AppConfig
 from ..generator import GenerationError, even_counts, format_points_for_export, generate_star_field, validate_state
 from ..history import HistoryManager
+from ..localization import get_localizer
 from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, Point, ShapeKind
 from ..preferences import load_last_save_path, save_last_save_path
 from ..shapes import polygon_geometry_from_world_vertices, polygon_local_bounds, polygon_size_from_local_vertices, validate_polygon_vertices
@@ -364,6 +365,7 @@ class EditorController:
         self._notify()
 
     def export_to_path(self, output_path: Path) -> int:
+        localizer = get_localizer()
         errors = validate_state(self.state)
         if errors:
             raise GenerationError(errors[0])
@@ -376,7 +378,11 @@ class EditorController:
         )
         self._last_save_path = output_path
         save_last_save_path(output_path)
-        self.session.status_text = f"Saved {len(generated.stars)} stars to {output_path.name}."
+        self.session.status_text = localizer.text(
+            "status.saved",
+            count=len(generated.stars),
+            filename=output_path.name,
+        )
         self.session.status_kind = "success"
         self._notify()
         return len(generated.stars)
@@ -488,10 +494,11 @@ class EditorController:
             cluster.size = polygon_size_from_local_vertices(scaled_vertices, polygon_scale=percent)
 
     def _build_cluster_panel_view_model(self) -> ClusterPanelViewModel:
+        localizer = get_localizer()
         placement_shape = self.active_tool.shape_kind()
         if placement_shape is None:
             placement = PlacementViewModel(
-                info_text="Choose Circle, Rectangle, or Polygon from the toolbar to place new clusters.",
+                info_text=localizer.text("controller.placement.none"),
                 show_radius=False,
                 radius=self.state.placement_circle_size.radius,
                 show_width=False,
@@ -501,7 +508,7 @@ class EditorController:
             )
         elif placement_shape is ShapeKind.POLYGON:
             placement = PlacementViewModel(
-                info_text="Click to add polygon vertices. Click the first vertex to finish, and press Escape to cancel the draft.",
+                info_text=localizer.text("controller.placement.polygon"),
                 show_radius=False,
                 radius=self.state.placement_circle_size.radius,
                 show_width=False,
@@ -512,7 +519,10 @@ class EditorController:
         else:
             placement_size = self.state.placement_size_for_shape(placement_shape)
             placement = PlacementViewModel(
-                info_text=f"New {placement_shape.value} clusters use these placement defaults.",
+                info_text=localizer.text(
+                    "controller.placement.shape_defaults",
+                    shape_name=localizer.shape_name(placement_shape),
+                ),
                 show_radius=placement_shape is ShapeKind.CIRCLE,
                 radius=placement_size.radius,
                 show_width=placement_shape is ShapeKind.RECTANGLE,
@@ -527,7 +537,7 @@ class EditorController:
 
         if not selected:
             selection = SelectionViewModel(
-                info_text="No cluster selected.",
+                info_text=localizer.text("controller.selection.none"),
                 show_shape_selector=False,
                 active_shape_id=None,
                 show_radius=False,
@@ -542,7 +552,11 @@ class EditorController:
             )
             return ClusterPanelViewModel(placement=placement, selection=selection)
 
-        info_text = "1 cluster selected." if len(selected) == 1 else f"{len(selected)} clusters selected."
+        info_text = (
+            localizer.text("controller.selection.one")
+            if len(selected) == 1
+            else localizer.text("controller.selection.many", count=len(selected))
+        )
         if selection_shape is None:
             selection = SelectionViewModel(
                 info_text=info_text,
@@ -556,18 +570,18 @@ class EditorController:
                 height=reference_size.height,
                 show_polygon_scale=False,
                 polygon_scale=100.0,
-                size_hint="Shape changes apply to all selected clusters. Size editing requires the same shape.",
+                size_hint=localizer.text("controller.selection.mixed_shape_hint"),
             )
             return ClusterPanelViewModel(placement=placement, selection=selection)
 
         size_hint: str | None = None
         if selection_shape is ShapeKind.POLYGON:
             if len(selected) == 1:
-                size_hint = "Drag polygon vertices on the canvas to edit the shape. Scale applies around the polygon center."
+                size_hint = localizer.text("controller.selection.polygon_single_hint")
             else:
-                size_hint = "Scale applies to all selected polygons around their own centers."
+                size_hint = localizer.text("controller.selection.polygon_multi_hint")
         elif len(selected) > 1:
-            size_hint = "Size changes apply to all selected clusters."
+            size_hint = localizer.text("controller.selection.multi_size_hint")
 
         selection = SelectionViewModel(
             info_text=info_text,
@@ -586,11 +600,12 @@ class EditorController:
         return ClusterPanelViewModel(placement=placement, selection=selection)
 
     def _build_distribution_panel_view_model(self) -> DistributionPanelViewModel:
+        localizer = get_localizer()
         manual_mode = self.state.distribution_mode is DistributionMode.MANUAL
         manual_rows = tuple(
             ManualCountRowViewModel(
                 cluster_id=cluster.cluster_id,
-                label=f"Cluster {index + 1}",
+                label=localizer.text("controller.manual_cluster_label", index=index + 1),
                 value=cluster.manual_star_count,
             )
             for index, cluster in enumerate(self.state.clusters)
@@ -607,6 +622,7 @@ class EditorController:
         )
 
     def _effective_status(self) -> tuple[bool, StatusViewModel]:
+        localizer = get_localizer()
         errors = validate_state(self.state)
         status_text = self.session.status_text
         status_kind = self.session.status_kind
@@ -614,7 +630,7 @@ class EditorController:
 
         if errors:
             generate_enabled = False
-            if not self.state.clusters and errors[0] == "Cluster stars require at least one cluster.":
+            if not self.state.clusters and errors[0] == localizer.text("error.cluster_required"):
                 status_text = self.config.text.shape_interaction_hint
                 status_kind = "neutral"
             else:

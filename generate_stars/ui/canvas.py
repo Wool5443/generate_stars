@@ -15,6 +15,7 @@ from gi.repository import Gdk, Gtk
 from ..config import AppConfig
 from ..controllers.editor_controller import EditorController
 from ..generator import preview_cluster_counts
+from ..localization import get_localizer
 from ..models import CanvasTool, Point, ShapeKind
 from ..shapes import get_shape, polygon_world_vertices
 
@@ -462,29 +463,53 @@ class StarCanvas(Gtk.DrawingArea):
         if self._hovered_cluster_id is None:
             return []
 
+        localizer = get_localizer()
         counts = preview_cluster_counts(self.state)
         for index, cluster in enumerate(self.state.clusters):
             if cluster.cluster_id != self._hovered_cluster_id:
                 continue
 
-            lines = [f"Cluster {index + 1}"]
+            lines = [localizer.text("canvas.hover.cluster", index=index + 1)]
             lines.append(
-                "Center: "
-                f"{self._format_hover_value(cluster.center.x)}, {self._format_hover_value(cluster.center.y)}"
+                localizer.text(
+                    "canvas.hover.center",
+                    x=self._format_hover_value(cluster.center.x),
+                    y=self._format_hover_value(cluster.center.y),
+                )
             )
 
             if cluster.shape_kind is ShapeKind.CIRCLE:
-                lines.append(f"Radius: {self._format_hover_value(cluster.size.radius)}")
+                lines.append(
+                    localizer.text(
+                        "canvas.hover.radius",
+                        value=self._format_hover_value(cluster.size.radius),
+                    )
+                )
             elif cluster.shape_kind is ShapeKind.RECTANGLE:
-                lines.append(f"Width: {self._format_hover_value(cluster.size.width)}")
-                lines.append(f"Height: {self._format_hover_value(cluster.size.height)}")
+                lines.append(
+                    localizer.text(
+                        "canvas.hover.width",
+                        value=self._format_hover_value(cluster.size.width),
+                    )
+                )
+                lines.append(
+                    localizer.text(
+                        "canvas.hover.height",
+                        value=self._format_hover_value(cluster.size.height),
+                    )
+                )
             else:
-                lines.append(f"Vertices: {len(cluster.size.vertices_local)}")
+                lines.append(
+                    localizer.text(
+                        "canvas.hover.vertices",
+                        count=len(cluster.size.vertices_local),
+                    )
+                )
 
             if counts is not None and index < len(counts):
-                lines.append(f"Stars: {counts[index]}")
+                lines.append(localizer.text("canvas.hover.stars", count=counts[index]))
             else:
-                lines.append("Stars: randomized")
+                lines.append(localizer.text("canvas.hover.randomized"))
             return lines
         return []
 

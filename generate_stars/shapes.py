@@ -7,6 +7,7 @@ import random
 
 import cairo
 
+from .localization import get_localizer
 from .models import ClusterSize, Point, ShapeKind
 
 POLYGON_EPSILON = 1e-6
@@ -200,11 +201,12 @@ def is_simple_polygon(vertices: list[Point], epsilon: float = POLYGON_EPSILON) -
 
 
 def validate_polygon_vertices(vertices: list[Point]) -> list[str]:
+    localizer = get_localizer()
     normalized = normalize_polygon_vertices(vertices)
     if len(normalized) < 3:
-        return ["Polygon must have at least 3 distinct vertices."]
+        return [localizer.text("error.polygon_vertex_count")]
     if not is_simple_polygon(normalized):
-        return ["Polygon must be simple and non-self-intersecting."]
+        return [localizer.text("error.polygon_simple")]
     return []
 
 

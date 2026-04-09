@@ -10,6 +10,7 @@ from gi.repository import Gtk
 
 from ..config import AppConfig
 from ..controllers.view_models import DistributionPanelViewModel
+from ..localization import get_localizer
 from ..models import DistributionMode
 from .widgets import PanelView
 
@@ -21,7 +22,8 @@ class DistributionPanelView(PanelView):
         attach_continuous_history: Callable[[Gtk.Widget], None],
         manual_count_changed: Callable[[Gtk.SpinButton, int], None],
     ) -> None:
-        super().__init__("Stars", config)
+        localizer = get_localizer()
+        super().__init__(localizer.text("ui.panel.stars"), config)
         self._attach_continuous_history = attach_continuous_history
         self._manual_count_changed = manual_count_changed
         self._manual_signature: tuple[tuple[int, str], ...] = ()
@@ -29,13 +31,13 @@ class DistributionPanelView(PanelView):
 
         self.total_stars_spin = self.make_spin(config.limits.total_stars_min, config.limits.total_stars_max, 1)
         attach_continuous_history(self.total_stars_spin)
-        self.append(self.build_row("Total cluster stars", self.total_stars_spin))
+        self.append(self.build_row(localizer.text("ui.label.total_cluster_stars"), self.total_stars_spin))
 
         self.distribution_combo = Gtk.ComboBoxText()
-        self.distribution_combo.append(DistributionMode.EQUAL.value, "Equal")
-        self.distribution_combo.append(DistributionMode.DEVIATION.value, "Deviation")
-        self.distribution_combo.append(DistributionMode.MANUAL.value, "Manual")
-        self.append(self.build_row("Distribution", self.distribution_combo))
+        self.distribution_combo.append(DistributionMode.EQUAL.value, localizer.text("ui.option.equal"))
+        self.distribution_combo.append(DistributionMode.DEVIATION.value, localizer.text("ui.option.deviation"))
+        self.distribution_combo.append(DistributionMode.MANUAL.value, localizer.text("ui.option.manual"))
+        self.append(self.build_row(localizer.text("ui.label.distribution"), self.distribution_combo))
 
         self.deviation_spin = self.make_spin(
             config.limits.deviation_percent_min,
@@ -44,7 +46,7 @@ class DistributionPanelView(PanelView):
             digits=1,
         )
         attach_continuous_history(self.deviation_spin)
-        self.deviation_row = self.build_row("Deviation %", self.deviation_spin)
+        self.deviation_row = self.build_row(localizer.text("ui.label.deviation_percent"), self.deviation_spin)
         self.append(self.deviation_row)
 
         self.manual_counts_note = Gtk.Label(xalign=0.0)

@@ -1,6 +1,7 @@
 [app]
 application_id = "com.twenty.generate-stars"
 title = "Star Cluster Generator"
+language = "auto"
 css = '''
 window {
   background: #0b0f14;

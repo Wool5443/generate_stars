@@ -10,6 +10,7 @@ from gi.repository import Gtk
 
 from ..config import AppConfig
 from ..controllers.view_models import WindowViewModel
+from ..localization import get_localizer
 from .cluster_panel import ClusterPanelView
 from .distribution_panel import DistributionPanelView
 from .parameter_panel import ParameterPanelView
@@ -23,6 +24,7 @@ class SidebarView(Gtk.Box):
         attach_continuous_history: Callable[[Gtk.Widget], None],
         manual_count_changed: Callable[[Gtk.SpinButton, int], None],
     ) -> None:
+        localizer = get_localizer()
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=config.ui.sidebar_spacing)
         self.config = config
         self.set_size_request(config.ui.sidebar_width, -1)
@@ -56,7 +58,7 @@ class SidebarView(Gtk.Box):
         self.footer.set_margin_bottom(config.ui.sidebar_margin)
         self.append(self.footer)
 
-        self.generate_button = Gtk.Button(label="Generate")
+        self.generate_button = Gtk.Button(label=localizer.text("ui.generate"))
         self.generate_button.add_css_class("suggested-action")
         self.generate_button.add_css_class("generate-button")
         self.footer.append(self.generate_button)

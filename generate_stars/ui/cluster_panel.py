@@ -10,13 +10,14 @@ from gi.repository import Gtk
 
 from ..config import AppConfig
 from ..controllers.view_models import ClusterPanelViewModel
+from ..localization import get_localizer
 from ..models import ShapeKind
 from .widgets import PanelView
 
 
 class ClusterPanelView(PanelView):
     def __init__(self, config: AppConfig, attach_continuous_history: Callable[[Gtk.Widget], None]) -> None:
-        super().__init__("Clusters", config)
+        super().__init__(get_localizer().text("ui.panel.clusters"), config)
 
         self.placement_info = Gtk.Label(xalign=0.0)
         self.placement_info.set_wrap(True)
@@ -24,17 +25,17 @@ class ClusterPanelView(PanelView):
 
         self.placement_radius_spin = self.make_spin(config.limits.size_min, config.limits.size_max, 1, digits=1)
         attach_continuous_history(self.placement_radius_spin)
-        self.placement_radius_row = self.build_row("Radius", self.placement_radius_spin)
+        self.placement_radius_row = self.build_row(self.localizer.text("ui.label.radius"), self.placement_radius_spin)
         self.append(self.placement_radius_row)
 
         self.placement_width_spin = self.make_spin(config.limits.size_min, config.limits.size_max, 1, digits=1)
         attach_continuous_history(self.placement_width_spin)
-        self.placement_width_row = self.build_row("Width", self.placement_width_spin)
+        self.placement_width_row = self.build_row(self.localizer.text("ui.label.width"), self.placement_width_spin)
         self.append(self.placement_width_row)
 
         self.placement_height_spin = self.make_spin(config.limits.size_min, config.limits.size_max, 1, digits=1)
         attach_continuous_history(self.placement_height_spin)
-        self.placement_height_row = self.build_row("Height", self.placement_height_spin)
+        self.placement_height_row = self.build_row(self.localizer.text("ui.label.height"), self.placement_height_spin)
         self.append(self.placement_height_row)
 
         self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
@@ -44,30 +45,30 @@ class ClusterPanelView(PanelView):
         self.append(self.selection_info)
 
         self.selection_shape_combo = Gtk.ComboBoxText()
-        self.selection_shape_combo.append(ShapeKind.CIRCLE.value, "Circle")
-        self.selection_shape_combo.append(ShapeKind.RECTANGLE.value, "Rectangle")
-        self.selection_shape_combo.append(ShapeKind.POLYGON.value, "Polygon")
-        self.selection_shape_row = self.build_row("Shape", self.selection_shape_combo)
+        self.selection_shape_combo.append(ShapeKind.CIRCLE.value, self.localizer.text("shape.circle"))
+        self.selection_shape_combo.append(ShapeKind.RECTANGLE.value, self.localizer.text("shape.rectangle"))
+        self.selection_shape_combo.append(ShapeKind.POLYGON.value, self.localizer.text("shape.polygon"))
+        self.selection_shape_row = self.build_row(self.localizer.text("ui.label.shape"), self.selection_shape_combo)
         self.append(self.selection_shape_row)
 
         self.selection_radius_spin = self.make_spin(config.limits.size_min, config.limits.size_max, 1, digits=1)
         attach_continuous_history(self.selection_radius_spin)
-        self.selection_radius_row = self.build_row("Radius", self.selection_radius_spin)
+        self.selection_radius_row = self.build_row(self.localizer.text("ui.label.radius"), self.selection_radius_spin)
         self.append(self.selection_radius_row)
 
         self.selection_width_spin = self.make_spin(config.limits.size_min, config.limits.size_max, 1, digits=1)
         attach_continuous_history(self.selection_width_spin)
-        self.selection_width_row = self.build_row("Width", self.selection_width_spin)
+        self.selection_width_row = self.build_row(self.localizer.text("ui.label.width"), self.selection_width_spin)
         self.append(self.selection_width_row)
 
         self.selection_height_spin = self.make_spin(config.limits.size_min, config.limits.size_max, 1, digits=1)
         attach_continuous_history(self.selection_height_spin)
-        self.selection_height_row = self.build_row("Height", self.selection_height_spin)
+        self.selection_height_row = self.build_row(self.localizer.text("ui.label.height"), self.selection_height_spin)
         self.append(self.selection_height_row)
 
         self.selection_polygon_scale_spin = self.make_spin(config.limits.size_min, config.limits.size_max, 1, digits=1)
         attach_continuous_history(self.selection_polygon_scale_spin)
-        self.selection_polygon_scale_row = self.build_row("Scale", self.selection_polygon_scale_spin)
+        self.selection_polygon_scale_row = self.build_row(self.localizer.text("ui.label.scale"), self.selection_polygon_scale_spin)
         self.append(self.selection_polygon_scale_row)
 
         self.selection_size_hint = Gtk.Label(xalign=0.0)

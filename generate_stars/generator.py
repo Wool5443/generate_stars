@@ -6,6 +6,7 @@ import math
 import random
 
 from .config import AppConfig, get_app_config
+from .localization import get_localizer
 from .models import AppState, ClusterConfig, ClusterInstance, ClusterSize, DistributionMode, Point, ShapeKind, StarParameterConfig, StarRecord
 from .shapes import BoundingBox, get_shape, validate_polygon_vertices
 
@@ -46,14 +47,15 @@ def ensure_cluster_storage(state: AppState) -> None:
 
 
 def validate_cluster_size(shape_kind: ShapeKind, size: ClusterSize, label: str) -> list[str]:
+    localizer = get_localizer()
     errors: list[str] = []
     if shape_kind is ShapeKind.CIRCLE and size.radius <= 0.0:
-        errors.append(f"{label} radius must be greater than zero.")
+        errors.append(localizer.text("error.radius_positive", label=label))
     if shape_kind is ShapeKind.RECTANGLE:
         if size.width <= 0.0:
-            errors.append(f"{label} width must be greater than zero.")
+            errors.append(localizer.text("error.width_positive", label=label))
         if size.height <= 0.0:
-            errors.append(f"{label} height must be greater than zero.")
+            errors.append(localizer.text("error.height_positive", label=label))
     if shape_kind is ShapeKind.POLYGON:
         for error in validate_polygon_vertices(size.vertices_local):
             errors.append(f"{label}: {error}")
@@ -62,37 +64,56 @@ def validate_cluster_size(shape_kind: ShapeKind, size: ClusterSize, label: str) 
 
 def validate_state(state: AppState) -> list[str]:
     ensure_cluster_storage(state)
+    localizer = get_localizer()
     errors: list[str] = []
     if state.total_cluster_stars < 0:
-        errors.append("Total cluster stars cannot be negative.")
+        errors.append(localizer.text("error.cluster_total_negative"))
     if state.trash_star_count < 0:
-        errors.append("Trash star count cannot be negative.")
+        errors.append(localizer.text("error.trash_count_negative"))
     if state.trash_min_distance < 0.0:
-        errors.append("Trash star minimum distance cannot be negative.")
+        errors.append(localizer.text("error.trash_distance_negative"))
 
-    errors.extend(validate_cluster_size(ShapeKind.CIRCLE, state.placement_circle_size, "Circle placement"))
-    errors.extend(validate_cluster_size(ShapeKind.RECTANGLE, state.placement_rectangle_size, "Rectangle placement"))
+    errors.extend(
+        validate_cluster_size(
+            ShapeKind.CIRCLE,
+            state.placement_circle_size,
+            localizer.text("error.circle_placement"),
+        )
+    )
+    errors.extend(
+        validate_cluster_size(
+            ShapeKind.RECTANGLE,
+            state.placement_rectangle_size,
+            localizer.text("error.rectangle_placement"),
+        )
+    )
 
     for index, cluster in enumerate(state.clusters):
-        errors.extend(validate_cluster_size(cluster.shape_kind, cluster.size, f"Cluster {index + 1}"))
+        errors.extend(
+            validate_cluster_size(
+                cluster.shape_kind,
+                cluster.size,
+                localizer.text("error.cluster", index=index + 1),
+            )
+        )
 
     if not state.clusters and state.total_cluster_stars > 0:
-        errors.append("Cluster stars require at least one cluster.")
+        errors.append(localizer.text("error.cluster_required"))
 
     if state.distribution_mode is DistributionMode.DEVIATION and state.deviation_percent < 0.0:
-        errors.append("Deviation percent cannot be negative.")
+        errors.append(localizer.text("error.deviation_negative"))
 
     if state.star_parameter.enabled:
         if not state.star_parameter.name.strip():
-            errors.append("Star parameter name cannot be empty.")
+            errors.append(localizer.text("error.parameter_name_empty"))
         if state.star_parameter.max_value < state.star_parameter.min_value:
-            errors.append("Star parameter max must be greater than or equal to min.")
+            errors.append(localizer.text("error.parameter_range_invalid"))
 
     if state.distribution_mode is DistributionMode.MANUAL:
         if any(cluster.manual_star_count < 0 for cluster in state.clusters):
-            errors.append("Manual cluster counts cannot be negative.")
+            errors.append(localizer.text("error.manual_counts_negative"))
         if sum(cluster.manual_star_count for cluster in state.clusters) != state.total_cluster_stars:
-            errors.append("Manual cluster counts must sum to the total cluster stars.")
+            errors.append(localizer.text("error.manual_counts_total"))
 
     return errors
 
@@ -142,19 +163,20 @@ def allocate_cluster_counts(
     deviation_percent: float,
     rng: random.Random,
 ) -> list[int]:
+    localizer = get_localizer()
     if cluster_count <= 0:
         if total == 0:
             return []
-        raise GenerationError("Cluster stars require at least one cluster.")
+        raise GenerationError(localizer.text("error.cluster_required"))
 
     if mode is DistributionMode.EQUAL:
         return even_counts(total, cluster_count)
 
     if mode is DistributionMode.MANUAL:
         if len(manual_counts) != cluster_count:
-            raise GenerationError("Manual counts are out of sync with the cluster count.")
+            raise GenerationError(localizer.text("error.manual_counts_sync"))
         if sum(manual_counts) != total:
-            raise GenerationError("Manual cluster counts must sum to the total cluster stars.")
+            raise GenerationError(localizer.text("error.manual_counts_total"))
         return list(manual_counts)
 
     spread = max(0.0, deviation_percent) / 100.0
@@ -253,10 +275,7 @@ def generate_trash_points(
             points.append(candidate)
 
     if len(points) != count:
-        raise GenerationError(
-            "Could not place all trash stars with the requested minimum distance. "
-            "Reduce the trash-star count or the minimum distance."
-        )
+        raise GenerationError(get_localizer().text("error.trash_placement_failed"))
     return points
 
 
@@ -342,7 +361,7 @@ def format_points_for_export(
         y_value = f"{y:.{precision}f}".replace(".", ",")
         if export_parameter_name:
             if parameter_value is None:
-                raise ValueError("Parameter export requires a value for every star.")
+                raise ValueError(get_localizer().text("error.parameter_export_requires_value"))
             parameter_text = f"{parameter_value:.{precision}f}".replace(".", ",")
             lines.append(f"{x_value} {y_value} {parameter_text}")
             continue

@@ -9,8 +9,9 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gtk
 
-from .config import AppConfig, ConfigIssue, initialize_app_config
+from .config import AppConfig, ConfigIssue, initialize_app_config, set_app_config
 from .controllers.editor_controller import EditorController
+from .localization import initialize_localizer
 from .ui.window import StarClusterWindow
 
 
@@ -48,5 +49,7 @@ class StarClusterApplication(Gtk.Application):
 
 def main(argv: list[str] | None = None) -> int:
     config, config_issues = initialize_app_config(create_missing=True)
+    config = initialize_localizer(config)
+    set_app_config(config, config_issues)
     app = StarClusterApplication(config, config_issues)
     return app.run(argv or sys.argv)

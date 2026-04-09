@@ -12,6 +12,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 from ..config import AppConfig, ConfigIssue
 from ..controllers.editor_controller import EditorController
 from ..generator import GenerationError
+from ..localization import get_localizer
 from ..models import CanvasTool, DistributionMode, ShapeKind
 from .canvas import StarCanvas
 from .sidebar import SidebarView
@@ -347,7 +348,8 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def show_startup_config_issues(self) -> None:
         if not self._startup_config_issues:
             return
-        message = "Some config values were ignored and defaults were used:\n\n" + "\n".join(
+        localizer = get_localizer()
+        message = localizer.text("window.config_issues_header") + "\n".join(
             f"{issue.path}: {issue.message}" for issue in self._startup_config_issues
         )
         self._startup_config_issues.clear()
@@ -355,12 +357,13 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
     def _on_generate_clicked(self, button: Gtk.Button) -> None:
         self.controller.finalize_history_transaction()
+        localizer = get_localizer()
         dialog = Gtk.FileChooserNative.new(
             self.config.text.save_dialog_title,
             self,
             Gtk.FileChooserAction.SAVE,
-            "_Save",
-            "_Cancel",
+            localizer.text("window.save_button"),
+            localizer.text("window.cancel_button"),
         )
         dialog.set_modal(True)
         self._configure_save_dialog(dialog)
@@ -392,7 +395,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
             file = dialog.get_file()
             if file is None or file.get_path() is None:
-                raise GenerationError("Please choose a local file path.")
+                raise GenerationError(get_localizer().text("window.choose_local_path"))
 
             output_path = Path(file.get_path())
             if output_path.suffix.lower() != ".txt":
