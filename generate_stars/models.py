@@ -133,7 +133,6 @@ class ClusterInstance:
 
 @dataclass(slots=True)
 class AppState:
-    active_tool: CanvasTool = CanvasTool.SELECT
     placement_circle_size: ClusterSize = field(default_factory=ClusterSize)
     placement_rectangle_size: ClusterSize = field(default_factory=ClusterSize)
     clusters: list[ClusterInstance] = field(default_factory=list)
@@ -145,8 +144,6 @@ class AppState:
     star_parameter: StarParameterConfig = field(default_factory=StarParameterConfig)
     trash_star_count: int = field(default_factory=lambda: get_app_config().defaults.trash_star_count)
     trash_min_distance: float = field(default_factory=lambda: get_app_config().defaults.trash_min_distance)
-    viewport_scale: float = field(default_factory=lambda: get_app_config().defaults.viewport_scale)
-    viewport_offset: Point = field(default_factory=lambda: Point(0.0, 0.0))
 
     def placement_size_for_shape(self, shape_kind: ShapeKind) -> ClusterSize:
         if shape_kind is ShapeKind.CIRCLE:
