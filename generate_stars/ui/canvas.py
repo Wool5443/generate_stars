@@ -26,6 +26,38 @@ class CanvasViewportState:
     offset: Point
 
 
+def snap_coordinate_to_integer(value: float, enabled: bool) -> float:
+    if not enabled:
+        return value
+    if value >= 0.0:
+        return float(math.floor(value + 0.5))
+    return float(math.ceil(value - 0.5))
+
+
+def snap_world_point(point: Point, enabled: bool) -> Point:
+    return Point(
+        snap_coordinate_to_integer(point.x, enabled),
+        snap_coordinate_to_integer(point.y, enabled),
+    )
+
+
+def snap_translation_delta(delta_x: float, delta_y: float, enabled: bool) -> Point:
+    return Point(
+        snap_coordinate_to_integer(delta_x, enabled),
+        snap_coordinate_to_integer(delta_y, enabled),
+    )
+
+
+def snap_drag_center(current_world: Point, pointer_offset: Point, enabled: bool) -> Point:
+    return snap_world_point(
+        Point(
+            current_world.x - pointer_offset.x,
+            current_world.y - pointer_offset.y,
+        ),
+        enabled,
+    )
+
+
 class StarCanvas(Gtk.DrawingArea):
     def __init__(
         self,
@@ -60,6 +92,9 @@ class StarCanvas(Gtk.DrawingArea):
         self._selection_box_end: Point | None = None
         self._polygon_draft_vertices: list[Point] = []
         self._polygon_draft_preview: Point | None = None
+        self._move_drag_start_world: Point | None = None
+        self._move_drag_pointer_offset: Point | None = None
+        self._move_drag_original_centers: dict[int, Point] = {}
         self._drag_threshold_px = max(4.0, self.config.canvas.cluster_hit_tolerance_px)
         self._marker_radius_px = self.config.canvas.center_marker_radius_px
 
@@ -154,6 +189,12 @@ class StarCanvas(Gtk.DrawingArea):
     def _world_hit_tolerance(self) -> float:
         return self.config.canvas.cluster_hit_tolerance_px / max(self.viewport.scale, 1e-6)
 
+    def _snap_enabled(self) -> bool:
+        return self.controller.snap_to_integer_grid
+
+    def _editable_world_point(self, x: float, y: float) -> Point:
+        return snap_world_point(self.screen_to_world(x, y), self._snap_enabled())
+
     def _selected_polygon_for_vertex_edit(self):
         if self.controller.active_tool is not CanvasTool.SELECT or self.has_polygon_draft():
             return None
@@ -213,7 +254,7 @@ class StarCanvas(Gtk.DrawingArea):
         if self.has_polygon_draft() and self.controller.active_tool is CanvasTool.POLYGON:
             self._set_hovered_vertex(None, None)
             self._set_hovered_cluster(None)
-            self._polygon_draft_preview = self.screen_to_world(x, y)
+            self._polygon_draft_preview = self._editable_world_point(x, y)
             self.queue_draw()
             return
 
@@ -277,6 +318,19 @@ class StarCanvas(Gtk.DrawingArea):
             if not self.state.is_selected(self._press_cluster_id):
                 self.controller.select_only(self._press_cluster_id)
             self._active_cluster_id = self._press_cluster_id
+            self._move_drag_start_world = self.screen_to_world(self._press_position.x, self._press_position.y)
+            self._move_drag_original_centers = {
+                cluster.cluster_id: cluster.center.copy()
+                for cluster in self.state.selected_clusters()
+            }
+            self._move_drag_pointer_offset = None
+            selected = self.state.selected_clusters()
+            if len(selected) == 1 and self._active_cluster_id is not None:
+                cluster = selected[0]
+                self._move_drag_pointer_offset = Point(
+                    self._move_drag_start_world.x - cluster.center.x,
+                    self._move_drag_start_world.y - cluster.center.y,
+                )
             self.controller.begin_canvas_edit()
             self._drag_mode = "move"
             self._set_hovered_cluster(self._press_cluster_id)
@@ -294,7 +348,7 @@ class StarCanvas(Gtk.DrawingArea):
         shape_kind = self.controller.active_tool.shape_kind()
         if shape_kind is None or shape_kind is ShapeKind.POLYGON:
             return
-        cluster_id = self.controller.place_cluster(shape_kind, self.screen_to_world(x, y))
+        cluster_id = self.controller.place_cluster(shape_kind, self._editable_world_point(x, y))
         self._set_hovered_cluster(cluster_id)
 
     def _append_polygon_draft_vertex(self, world_point: Point) -> None:
@@ -303,15 +357,16 @@ class StarCanvas(Gtk.DrawingArea):
             last = self._polygon_draft_vertices[-1]
             if math.hypot(world_point.x - last.x, world_point.y - last.y) <= tolerance:
                 return
-        self._polygon_draft_vertices.append(world_point)
-        self._polygon_draft_preview = world_point
+        snapped_point = snap_world_point(world_point, self._snap_enabled())
+        self._polygon_draft_vertices.append(snapped_point)
+        self._polygon_draft_preview = snapped_point
 
     def _polygon_draft_close_hit(self, x: float, y: float) -> bool:
         if len(self._polygon_draft_vertices) < 3:
             return False
 
         first_vertex = self._polygon_draft_vertices[0]
-        world_point = self.screen_to_world(x, y)
+        world_point = self._editable_world_point(x, y)
         return math.hypot(world_point.x - first_vertex.x, world_point.y - first_vertex.y) <= self._world_hit_tolerance()
 
     def _apply_vertex_drag(self, x: float, y: float) -> None:
@@ -320,7 +375,7 @@ class StarCanvas(Gtk.DrawingArea):
         if not self.controller.move_polygon_vertex_to(
             self._active_vertex_cluster_id,
             self._active_vertex_index,
-            self.screen_to_world(x, y),
+            self._editable_world_point(x, y),
         ):
             return
 
@@ -345,6 +400,9 @@ class StarCanvas(Gtk.DrawingArea):
         self._press_ctrl = self._modifier_state_is_ctrl(gesture.get_current_event_state())
         self._selection_box_start = None
         self._selection_box_end = None
+        self._move_drag_start_world = None
+        self._move_drag_pointer_offset = None
+        self._move_drag_original_centers = {}
 
         if self.controller.active_tool is CanvasTool.SELECT and not self._is_space_pressed():
             vertex_hit = self._hit_test_polygon_vertex(x, y)
@@ -353,7 +411,7 @@ class StarCanvas(Gtk.DrawingArea):
                 self._press_cluster_id = self._press_vertex_cluster_id
 
         if self.controller.active_tool is CanvasTool.POLYGON and self.has_polygon_draft():
-            self._polygon_draft_preview = self.screen_to_world(x, y)
+            self._polygon_draft_preview = self._editable_world_point(x, y)
 
     def _on_released(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         self._pointer_position = Point(x, y)
@@ -384,7 +442,7 @@ class StarCanvas(Gtk.DrawingArea):
                         if self._polygon_draft_close_hit(x, y):
                             self.complete_polygon_draft()
                         else:
-                            self._append_polygon_draft_vertex(self.screen_to_world(x, y))
+                            self._append_polygon_draft_vertex(self._editable_world_point(x, y))
                 elif self._press_cluster_id is None and not self._press_moved_far_enough(x, y):
                     self._place_cluster_at(x, y)
 
@@ -396,9 +454,12 @@ class StarCanvas(Gtk.DrawingArea):
         self._press_vertex_cluster_id = None
         self._press_vertex_index = None
         self._press_ctrl = False
+        self._move_drag_start_world = None
+        self._move_drag_pointer_offset = None
+        self._move_drag_original_centers = {}
 
         if self.controller.active_tool is CanvasTool.POLYGON and self.has_polygon_draft():
-            self._polygon_draft_preview = self.screen_to_world(x, y)
+            self._polygon_draft_preview = self._editable_world_point(x, y)
             self._set_hovered_vertex(None, None)
             self._set_hovered_cluster(None)
         else:
@@ -415,7 +476,7 @@ class StarCanvas(Gtk.DrawingArea):
         self._start_drag_if_needed(x, y)
         if self._drag_mode is None:
             if self.controller.active_tool is CanvasTool.POLYGON and self.has_polygon_draft():
-                self._polygon_draft_preview = self.screen_to_world(x, y)
+                self._polygon_draft_preview = self._editable_world_point(x, y)
                 self.queue_draw()
             return
 
@@ -432,8 +493,27 @@ class StarCanvas(Gtk.DrawingArea):
             return
 
         if self._drag_mode == "move":
-            scale = max(self.viewport.scale, 1e-6)
-            self.controller.move_selected_by(dx / scale, -dy / scale)
+            current_world = self.screen_to_world(x, y)
+            if (
+                self._active_cluster_id is not None
+                and self._move_drag_pointer_offset is not None
+                and len(self.state.selected_clusters()) == 1
+            ):
+                self.controller.set_cluster_center(
+                    self._active_cluster_id,
+                    snap_drag_center(current_world, self._move_drag_pointer_offset, self._snap_enabled()),
+                )
+            elif self._move_drag_start_world is not None:
+                delta = snap_translation_delta(
+                    current_world.x - self._move_drag_start_world.x,
+                    current_world.y - self._move_drag_start_world.y,
+                    self._snap_enabled(),
+                )
+                self.controller.translate_selected_from_origins(
+                    self._move_drag_original_centers,
+                    delta.x,
+                    delta.y,
+                )
             self._set_hovered_cluster(self._active_cluster_id)
             self.queue_draw()
             return

@@ -72,6 +72,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.toolbar_view.circle_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.CIRCLE)
         self.toolbar_view.rectangle_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.RECTANGLE)
         self.toolbar_view.polygon_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.POLYGON)
+        self.toolbar_view.snap_button.connect("toggled", self._on_snap_toggled)
 
         cluster_panel = self.sidebar_view.cluster_panel
         cluster_panel.placement_radius_spin.connect("value-changed", self._on_placement_radius_changed)
@@ -186,6 +187,15 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self.controller.redo()
             return True
 
+        if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_c, Gdk.KEY_C):
+            self.controller.copy_selected_clusters()
+            return True
+
+        if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_v, Gdk.KEY_V):
+            self.canvas.cancel_polygon_draft()
+            self.controller.paste_copied_clusters()
+            return True
+
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_z, Gdk.KEY_Z):
             self.controller.undo()
             return True
@@ -239,6 +249,11 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if self._syncing_ui or self.toolbar_view.syncing or not button.get_active():
             return
         self._set_active_tool(tool)
+
+    def _on_snap_toggled(self, button: Gtk.ToggleButton) -> None:
+        if self._syncing_ui or self.toolbar_view.syncing:
+            return
+        self.controller.set_snap_to_integer_grid(button.get_active())
 
     def _on_placement_radius_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:

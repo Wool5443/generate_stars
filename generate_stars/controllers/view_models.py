@@ -10,6 +10,7 @@ class ToolbarViewModel:
     active_tool: CanvasTool
     can_undo: bool
     can_redo: bool
+    snap_to_integer_grid: bool
     active_tool_description: str
 
 

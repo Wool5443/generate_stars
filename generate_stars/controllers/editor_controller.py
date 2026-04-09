@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -10,7 +10,7 @@ from ..history import HistoryManager
 from ..localization import get_localizer
 from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, Point, ShapeKind
 from ..preferences import load_last_save_path, save_last_save_path
-from ..shapes import polygon_geometry_from_world_vertices, polygon_local_bounds, polygon_size_from_local_vertices, validate_polygon_vertices
+from ..shapes import get_shape, polygon_geometry_from_world_vertices, polygon_local_bounds, polygon_size_from_local_vertices, validate_polygon_vertices
 from .view_models import (
     ClusterPanelViewModel,
     DistributionPanelViewModel,
@@ -28,6 +28,10 @@ from .view_models import (
 @dataclass(slots=True)
 class EditorSessionState:
     active_tool: CanvasTool = CanvasTool.SELECT
+    snap_to_integer_grid: bool = False
+    clipboard_clusters: tuple = field(default_factory=tuple)
+    clipboard_offset: Point = field(default_factory=lambda: Point(1.0, -1.0))
+    clipboard_paste_count: int = 0
     status_text: str = ""
     status_kind: str = "neutral"
 
@@ -57,6 +61,10 @@ class EditorController:
     @property
     def can_redo(self) -> bool:
         return self._history.can_redo
+
+    @property
+    def snap_to_integer_grid(self) -> bool:
+        return self.session.snap_to_integer_grid
 
     def set_change_listener(self, listener: Callable[[], None]) -> None:
         self._change_listener = listener
@@ -150,6 +158,13 @@ class EditorController:
         self.session.active_tool = tool
         self._notify()
 
+    def set_snap_to_integer_grid(self, enabled: bool) -> None:
+        if self.session.snap_to_integer_grid == enabled:
+            return
+        self.finalize_history_transaction()
+        self.session.snap_to_integer_grid = enabled
+        self._notify()
+
     def select_only(self, cluster_id: int) -> None:
         self.finalize_history_transaction()
         self.state.select_only(cluster_id)
@@ -189,6 +204,55 @@ class EditorController:
             return
         self._run_immediate_edit(self.state.delete_selected_clusters)
 
+    def copy_selected_clusters(self) -> int:
+        localizer = get_localizer()
+        self.finalize_history_transaction()
+        selected = self.state.selected_clusters()
+        if not selected:
+            self.set_status(localizer.text("status.nothing_selected_to_copy"))
+            return 0
+
+        self.session.clipboard_clusters = tuple(cluster.copy() for cluster in selected)
+        self.session.clipboard_offset = self._clipboard_offset(selected)
+        self.session.clipboard_paste_count = 0
+        self.set_status(localizer.text("status.copied_clusters", count=len(selected)))
+        return len(selected)
+
+    def paste_copied_clusters(self) -> int:
+        localizer = get_localizer()
+        self.finalize_history_transaction()
+        if not self.session.clipboard_clusters:
+            self.set_status(localizer.text("status.nothing_to_paste"))
+            return 0
+
+        paste_step = self.session.clipboard_paste_count + 1
+        offset = Point(
+            self.session.clipboard_offset.x * paste_step,
+            self.session.clipboard_offset.y * paste_step,
+        )
+        clipboard_clusters = tuple(cluster.copy() for cluster in self.session.clipboard_clusters)
+        pasted_cluster_ids: list[int] = []
+
+        def mutate() -> None:
+            for copied_cluster in clipboard_clusters:
+                center = Point(
+                    copied_cluster.center.x + offset.x,
+                    copied_cluster.center.y + offset.y,
+                )
+                cluster = self.state.add_cluster(
+                    copied_cluster.shape_kind,
+                    center,
+                    copied_cluster.size.copy(),
+                )
+                cluster.manual_star_count = copied_cluster.manual_star_count
+                pasted_cluster_ids.append(cluster.cluster_id)
+            self.state.selected_cluster_ids = pasted_cluster_ids
+
+        self._run_immediate_edit(mutate)
+        self.session.clipboard_paste_count = paste_step
+        self.set_status(localizer.text("status.pasted_clusters", count=len(pasted_cluster_ids)))
+        return len(pasted_cluster_ids)
+
     def place_cluster(self, shape_kind: ShapeKind, center: Point) -> int:
         cluster_id = 0
 
@@ -225,6 +289,29 @@ class EditorController:
                 continue
             cluster.center.x += delta_x
             cluster.center.y += delta_y
+
+    def translate_selected_from_origins(
+        self,
+        original_centers: dict[int, Point],
+        delta_x: float,
+        delta_y: float,
+    ) -> None:
+        selected_ids = set(self.state.selected_cluster_ids)
+        for cluster in self.state.clusters:
+            if cluster.cluster_id not in selected_ids:
+                continue
+            origin = original_centers.get(cluster.cluster_id)
+            if origin is None:
+                continue
+            cluster.center.x = origin.x + delta_x
+            cluster.center.y = origin.y + delta_y
+
+    def set_cluster_center(self, cluster_id: int, center: Point) -> None:
+        cluster = self.state.cluster_by_id(cluster_id)
+        if cluster is None:
+            return
+        cluster.center.x = center.x
+        cluster.center.y = center.y
 
     def move_polygon_vertex_to(self, cluster_id: int, vertex_index: int, world_point: Point) -> bool:
         cluster = self.state.cluster_by_id(cluster_id)
@@ -391,6 +478,22 @@ class EditorController:
         if self.state.distribution_mode is not DistributionMode.MANUAL:
             return
         self.state.total_cluster_stars = sum(cluster.manual_star_count for cluster in self.state.clusters)
+
+    def _clipboard_offset(self, clusters: Sequence) -> Point:
+        first_bounds = get_shape(clusters[0].shape_kind).bounding_box(clusters[0].center, clusters[0].size)
+        min_x, min_y, max_x, max_y = first_bounds.min_x, first_bounds.min_y, first_bounds.max_x, first_bounds.max_y
+        for cluster in clusters[1:]:
+            bounds = get_shape(cluster.shape_kind).bounding_box(cluster.center, cluster.size)
+            min_x = min(min_x, bounds.min_x)
+            min_y = min(min_y, bounds.min_y)
+            max_x = max(max_x, bounds.max_x)
+            max_y = max(max_y, bounds.max_y)
+
+        width = max_x - min_x
+        height = max_y - min_y
+        dx = max(1.0, float(round(width * 0.1)))
+        dy = max(1.0, float(round(height * 0.1)))
+        return Point(dx, -dy)
 
     def _apply_even_manual_counts(self, total: int | None = None) -> None:
         total_value = self.state.total_cluster_stars if total is None else total
@@ -649,6 +752,7 @@ class EditorController:
                 active_tool=self.active_tool,
                 can_undo=self.can_undo,
                 can_redo=self.can_redo,
+                snap_to_integer_grid=self.snap_to_integer_grid,
                 active_tool_description=self._tool_description(self.active_tool),
             ),
             cluster_panel=self._build_cluster_panel_view_model(),

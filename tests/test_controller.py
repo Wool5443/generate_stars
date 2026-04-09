@@ -44,6 +44,7 @@ class EditorControllerTests(unittest.TestCase):
 
         self.assertFalse(view_model.cluster_panel.selection.show_shape_selector)
         self.assertEqual(view_model.cluster_panel.selection.info_text, "No cluster selected.")
+        self.assertFalse(view_model.toolbar.snap_to_integer_grid)
         self.assertEqual(
             view_model.toolbar.active_tool_description,
             self.controller.config.text.select_tool_description,
@@ -89,6 +90,108 @@ class EditorControllerTests(unittest.TestCase):
         self.assertEqual(cluster.size.polygon_scale, 150.0)
         self.assertEqual(cluster.size.vertices_local[0].x, -7.5)
         self.assertEqual(cluster.size.vertices_local[2].y, 7.5)
+
+    def test_snap_toggle_updates_toolbar_without_creating_history(self) -> None:
+        self.controller.set_snap_to_integer_grid(True)
+
+        view_model = self.controller.build_window_view_model()
+        self.assertTrue(view_model.toolbar.snap_to_integer_grid)
+        self.assertFalse(self.controller.can_undo)
+
+    def test_translate_selected_from_origins_preserves_relative_positions(self) -> None:
+        self.controller.state.clusters = [
+            make_cluster(1, ShapeKind.CIRCLE, Point(1.0, 2.0)),
+            make_cluster(2, ShapeKind.RECTANGLE, Point(4.0, 6.0)),
+        ]
+        self.controller.state.selected_cluster_ids = [1, 2]
+
+        self.controller.translate_selected_from_origins(
+            {
+                1: Point(1.0, 2.0),
+                2: Point(4.0, 6.0),
+            },
+            3.0,
+            -2.0,
+        )
+
+        self.assertEqual(self.controller.state.clusters[0].center.x, 4.0)
+        self.assertEqual(self.controller.state.clusters[0].center.y, 0.0)
+        self.assertEqual(self.controller.state.clusters[1].center.x, 7.0)
+        self.assertEqual(self.controller.state.clusters[1].center.y, 4.0)
+
+    def test_copy_then_paste_preserves_cluster_data_and_is_undoable(self) -> None:
+        self.controller.state = AppState(
+            distribution_mode=DistributionMode.MANUAL,
+            clusters=[
+                make_cluster(
+                    1,
+                    ShapeKind.POLYGON,
+                    Point(10.5, 20.5),
+                    polygon_scale=125.0,
+                    vertices_local=[
+                        Point(-3.0, -2.0),
+                        Point(4.0, -1.0),
+                        Point(1.0, 5.0),
+                    ],
+                    manual_star_count=7,
+                )
+            ],
+            selected_cluster_ids=[1],
+            next_cluster_id=2,
+            total_cluster_stars=7,
+        )
+
+        copied_count = self.controller.copy_selected_clusters()
+
+        self.assertEqual(copied_count, 1)
+        self.assertFalse(self.controller.can_undo)
+
+        pasted_count = self.controller.paste_copied_clusters()
+
+        self.assertEqual(pasted_count, 1)
+        self.assertEqual(len(self.controller.state.clusters), 2)
+        pasted_cluster = self.controller.state.clusters[1]
+        self.assertEqual(pasted_cluster.cluster_id, 2)
+        self.assertEqual(pasted_cluster.shape_kind, ShapeKind.POLYGON)
+        self.assertEqual(pasted_cluster.center.x, 11.5)
+        self.assertEqual(pasted_cluster.center.y, 19.5)
+        self.assertEqual(pasted_cluster.size.polygon_scale, 125.0)
+        self.assertEqual(len(pasted_cluster.size.vertices_local), 3)
+        self.assertEqual(pasted_cluster.manual_star_count, 7)
+        self.assertEqual(self.controller.state.selected_cluster_ids, [2])
+        self.assertEqual(self.controller.state.total_cluster_stars, 14)
+        self.assertTrue(self.controller.can_undo)
+
+        self.assertTrue(self.controller.undo())
+        self.assertEqual(len(self.controller.state.clusters), 1)
+        self.assertEqual(self.controller.state.selected_cluster_ids, [1])
+        self.assertEqual(self.controller.state.total_cluster_stars, 7)
+
+    def test_repeated_paste_chains_from_copied_payload(self) -> None:
+        self.controller.state.clusters = [
+            make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0),
+        ]
+        self.controller.state.selected_cluster_ids = [1]
+        self.controller.state.next_cluster_id = 2
+
+        self.controller.copy_selected_clusters()
+        self.controller.paste_copied_clusters()
+        self.controller.paste_copied_clusters()
+
+        self.assertEqual(len(self.controller.state.clusters), 3)
+        self.assertEqual(self.controller.state.clusters[1].center.x, 2.0)
+        self.assertEqual(self.controller.state.clusters[1].center.y, -2.0)
+        self.assertEqual(self.controller.state.clusters[2].center.x, 4.0)
+        self.assertEqual(self.controller.state.clusters[2].center.y, -4.0)
+        self.assertEqual(self.controller.state.selected_cluster_ids, [3])
+
+    def test_copy_without_selection_and_paste_without_clipboard_are_noops(self) -> None:
+        copied_count = self.controller.copy_selected_clusters()
+        pasted_count = self.controller.paste_copied_clusters()
+
+        self.assertEqual(copied_count, 0)
+        self.assertEqual(pasted_count, 0)
+        self.assertEqual(self.controller.state.clusters, [])
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ class CanvasToolbarView(Gtk.Box):
         self.circle_tool_button = Gtk.ToggleButton(label=f"{localizer.text('ui.tool.circle')} (C)")
         self.rectangle_tool_button = Gtk.ToggleButton(label=f"{localizer.text('ui.tool.rectangle')} (R)")
         self.polygon_tool_button = Gtk.ToggleButton(label=f"{localizer.text('ui.tool.polygon')} (P)")
+        self.snap_button = Gtk.ToggleButton(label=localizer.text("ui.toolbar.snap"))
 
         self.circle_tool_button.set_group(self.select_tool_button)
         self.rectangle_tool_button.set_group(self.select_tool_button)
@@ -39,6 +40,7 @@ class CanvasToolbarView(Gtk.Box):
         button_row.append(self.circle_tool_button)
         button_row.append(self.rectangle_tool_button)
         button_row.append(self.polygon_tool_button)
+        button_row.append(self.snap_button)
         self.append(button_row)
 
         self.description_label = Gtk.Label(xalign=0.0)
@@ -55,6 +57,7 @@ class CanvasToolbarView(Gtk.Box):
             self.circle_tool_button.set_active(view_model.active_tool is CanvasTool.CIRCLE)
             self.rectangle_tool_button.set_active(view_model.active_tool is CanvasTool.RECTANGLE)
             self.polygon_tool_button.set_active(view_model.active_tool is CanvasTool.POLYGON)
+            self.snap_button.set_active(view_model.snap_to_integer_grid)
             self.description_label.set_text(view_model.active_tool_description)
         finally:
             self._syncing = False
