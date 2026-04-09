@@ -6,7 +6,7 @@ import math
 import random
 
 from .config import AppConfig, get_app_config
-from .models import AppState, ClusterConfig, ClusterSize, DistributionMode, Point, ShapeKind, StarParameterConfig, StarRecord
+from .models import AppState, ClusterConfig, ClusterInstance, ClusterSize, DistributionMode, Point, ShapeKind, StarParameterConfig, StarRecord
 from .shapes import BoundingBox, get_shape
 
 
@@ -34,38 +34,15 @@ def even_counts(total: int, buckets: int) -> list[int]:
 
 
 def preview_cluster_counts(state: AppState) -> list[int] | None:
-    ensure_cluster_storage(state)
     if state.distribution_mode is DistributionMode.EQUAL:
-        return even_counts(state.total_cluster_stars, state.cluster_count)
+        return even_counts(state.total_cluster_stars, len(state.clusters))
     if state.distribution_mode is DistributionMode.MANUAL:
-        return list(state.manual_counts[: state.cluster_count])
+        return [cluster.manual_star_count for cluster in state.clusters]
     return None
 
 
 def ensure_cluster_storage(state: AppState) -> None:
-    current = len(state.cluster_centers)
-    if current < state.cluster_count:
-        state.cluster_centers.extend(Point(0.0, 0.0) for _ in range(state.cluster_count - current))
-    else:
-        del state.cluster_centers[state.cluster_count :]
-
-    override_current = len(state.size_overrides_enabled)
-    if override_current < state.cluster_count:
-        state.size_overrides_enabled.extend(False for _ in range(state.cluster_count - override_current))
-    else:
-        del state.size_overrides_enabled[state.cluster_count :]
-
-    size_current = len(state.size_overrides)
-    if size_current < state.cluster_count:
-        state.size_overrides.extend(state.shared_size.copy() for _ in range(state.cluster_count - size_current))
-    else:
-        del state.size_overrides[state.cluster_count :]
-
-    manual_current = len(state.manual_counts)
-    if manual_current < state.cluster_count:
-        state.manual_counts.extend(0 for _ in range(state.cluster_count - manual_current))
-    else:
-        del state.manual_counts[state.cluster_count :]
+    state.prune_selection()
 
 
 def validate_cluster_size(shape_kind: ShapeKind, size: ClusterSize, label: str) -> list[str]:
@@ -83,27 +60,20 @@ def validate_cluster_size(shape_kind: ShapeKind, size: ClusterSize, label: str) 
 def validate_state(state: AppState) -> list[str]:
     ensure_cluster_storage(state)
     errors: list[str] = []
-    if state.cluster_count < 0:
-        errors.append("Cluster count cannot be negative.")
     if state.total_cluster_stars < 0:
         errors.append("Total cluster stars cannot be negative.")
     if state.trash_star_count < 0:
         errors.append("Trash star count cannot be negative.")
     if state.trash_min_distance < 0.0:
         errors.append("Trash star minimum distance cannot be negative.")
-    errors.extend(validate_cluster_size(state.shape_kind, state.shared_size, "Shared"))
 
-    for index in range(state.cluster_count):
-        if state.size_overrides_enabled[index]:
-            errors.extend(
-                validate_cluster_size(
-                    state.shape_kind,
-                    state.size_overrides[index],
-                    f"Cluster {index + 1}",
-                )
-            )
+    errors.extend(validate_cluster_size(ShapeKind.CIRCLE, state.placement_circle_size, "Circle placement"))
+    errors.extend(validate_cluster_size(ShapeKind.RECTANGLE, state.placement_rectangle_size, "Rectangle placement"))
 
-    if state.cluster_count == 0 and state.total_cluster_stars > 0:
+    for index, cluster in enumerate(state.clusters):
+        errors.extend(validate_cluster_size(cluster.shape_kind, cluster.size, f"Cluster {index + 1}"))
+
+    if not state.clusters and state.total_cluster_stars > 0:
         errors.append("Cluster stars require at least one cluster.")
 
     if state.distribution_mode is DistributionMode.DEVIATION and state.deviation_percent < 0.0:
@@ -116,9 +86,9 @@ def validate_state(state: AppState) -> list[str]:
             errors.append("Star parameter max must be greater than or equal to min.")
 
     if state.distribution_mode is DistributionMode.MANUAL:
-        if any(count < 0 for count in state.manual_counts):
+        if any(cluster.manual_star_count < 0 for cluster in state.clusters):
             errors.append("Manual cluster counts cannot be negative.")
-        if sum(state.manual_counts) != state.total_cluster_stars:
+        if sum(cluster.manual_star_count for cluster in state.clusters) != state.total_cluster_stars:
             errors.append("Manual cluster counts must sum to the total cluster stars.")
 
     return errors
@@ -154,10 +124,11 @@ def generate_ring_centers(
 
 def resolve_cluster_configs(state: AppState) -> list[ClusterConfig]:
     ensure_cluster_storage(state)
-    return [
-        ClusterConfig(center=state.cluster_centers[index], size=state.resolved_size(index).copy())
-        for index in range(state.cluster_count)
-    ]
+    return [cluster.to_config() for cluster in state.clusters]
+
+
+def cluster_configs_from_clusters(clusters: Sequence[ClusterInstance]) -> list[ClusterConfig]:
+    return [cluster.to_config() for cluster in clusters]
 
 
 def allocate_cluster_counts(
@@ -204,11 +175,9 @@ def allocate_cluster_counts(
 
 def combined_bounding_box(
     cluster_configs: list[ClusterConfig],
-    shape_kind: ShapeKind,
     config: AppConfig | None = None,
 ) -> BoundingBox:
     config = config or get_app_config()
-    shape = get_shape(shape_kind)
     if not cluster_configs:
         return BoundingBox(
             -config.generation.empty_cluster_bounds_limit,
@@ -217,9 +186,11 @@ def combined_bounding_box(
             config.generation.empty_cluster_bounds_limit,
         )
 
-    first = shape.bounding_box(cluster_configs[0].center, cluster_configs[0].size)
+    first_shape = get_shape(cluster_configs[0].shape_kind)
+    first = first_shape.bounding_box(cluster_configs[0].center, cluster_configs[0].size)
     min_x, min_y, max_x, max_y = first.min_x, first.min_y, first.max_x, first.max_y
     for config in cluster_configs[1:]:
+        shape = get_shape(config.shape_kind)
         bounds = shape.bounding_box(config.center, config.size)
         min_x = min(min_x, bounds.min_x)
         min_y = min(min_y, bounds.min_y)
@@ -230,13 +201,12 @@ def combined_bounding_box(
 
 def generate_cluster_points(
     cluster_configs: list[ClusterConfig],
-    shape_kind: ShapeKind,
     cluster_counts: list[int],
     rng: random.Random,
 ) -> list[Point]:
-    shape = get_shape(shape_kind)
     points: list[Point] = []
     for config, count in zip(cluster_configs, cluster_counts, strict=True):
+        shape = get_shape(config.shape_kind)
         for _ in range(count):
             points.append(shape.sample_point(config.center, config.size, rng))
     return points
@@ -244,7 +214,6 @@ def generate_cluster_points(
 
 def generate_trash_points(
     cluster_configs: list[ClusterConfig],
-    shape_kind: ShapeKind,
     count: int,
     min_edge_distance: float,
     rng: random.Random,
@@ -254,8 +223,7 @@ def generate_trash_points(
         return []
 
     config = config or get_app_config()
-    shape = get_shape(shape_kind)
-    base_bounds = combined_bounding_box(cluster_configs, shape_kind, config)
+    base_bounds = combined_bounding_box(cluster_configs, config)
     padding = max(
         config.generation.trash_bounds_padding_min,
         min_edge_distance + config.generation.trash_bounds_padding_extra,
@@ -275,8 +243,9 @@ def generate_trash_points(
             y=rng.uniform(bounds.min_y, bounds.max_y),
         )
         if all(
-            shape.edge_distance(candidate, config.center, config.size) >= min_edge_distance
-            for config in cluster_configs
+            get_shape(cluster_config.shape_kind).edge_distance(candidate, cluster_config.center, cluster_config.size)
+            >= min_edge_distance
+            for cluster_config in cluster_configs
         ):
             points.append(candidate)
 
@@ -316,18 +285,17 @@ def generate_star_field(state: AppState, rng: random.Random | None = None) -> Ge
     cluster_configs = resolve_cluster_configs(state)
     cluster_counts = allocate_cluster_counts(
         total=state.total_cluster_stars,
-        cluster_count=state.cluster_count,
+        cluster_count=len(state.clusters),
         mode=state.distribution_mode,
-        manual_counts=state.manual_counts,
+        manual_counts=[cluster.manual_star_count for cluster in state.clusters],
         deviation_percent=state.deviation_percent,
         rng=rng,
     )
 
-    points = generate_cluster_points(cluster_configs, state.shape_kind, cluster_counts, rng)
+    points = generate_cluster_points(cluster_configs, cluster_counts, rng)
     points.extend(
         generate_trash_points(
             cluster_configs=cluster_configs,
-            shape_kind=state.shape_kind,
             count=state.trash_star_count,
             min_edge_distance=state.trash_min_distance,
             rng=rng,

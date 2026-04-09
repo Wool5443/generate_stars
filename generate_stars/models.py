@@ -17,6 +17,19 @@ class DistributionMode(StrEnum):
     MANUAL = "manual"
 
 
+class CanvasTool(StrEnum):
+    SELECT = "select"
+    CIRCLE = "circle"
+    RECTANGLE = "rectangle"
+
+    def shape_kind(self) -> ShapeKind | None:
+        if self is CanvasTool.CIRCLE:
+            return ShapeKind.CIRCLE
+        if self is CanvasTool.RECTANGLE:
+            return ShapeKind.RECTANGLE
+        return None
+
+
 @dataclass(slots=True)
 class Point:
     x: float
@@ -59,30 +72,107 @@ class ClusterSize:
 
 @dataclass(slots=True)
 class ClusterConfig:
+    shape_kind: ShapeKind
     center: Point
     size: ClusterSize
 
 
 @dataclass(slots=True)
+class ClusterInstance:
+    cluster_id: int
+    shape_kind: ShapeKind
+    center: Point
+    size: ClusterSize
+    manual_star_count: int = 0
+
+    def to_config(self) -> ClusterConfig:
+        return ClusterConfig(
+            shape_kind=self.shape_kind,
+            center=self.center,
+            size=self.size.copy(),
+        )
+
+
+@dataclass(slots=True)
 class AppState:
-    shape_kind: ShapeKind = ShapeKind.CIRCLE
-    shared_size: ClusterSize = field(default_factory=ClusterSize)
-    cluster_count: int = field(default_factory=lambda: get_app_config().defaults.cluster_count)
-    cluster_centers: list[Point] = field(default_factory=list)
-    positions_customized: bool = False
-    size_overrides_enabled: list[bool] = field(default_factory=list)
-    size_overrides: list[ClusterSize] = field(default_factory=list)
+    active_tool: CanvasTool = CanvasTool.SELECT
+    placement_circle_size: ClusterSize = field(default_factory=ClusterSize)
+    placement_rectangle_size: ClusterSize = field(default_factory=ClusterSize)
+    clusters: list[ClusterInstance] = field(default_factory=list)
+    selected_cluster_ids: list[int] = field(default_factory=list)
+    next_cluster_id: int = 1
     total_cluster_stars: int = field(default_factory=lambda: get_app_config().defaults.total_cluster_stars)
     distribution_mode: DistributionMode = DistributionMode.EQUAL
     deviation_percent: float = field(default_factory=lambda: get_app_config().defaults.deviation_percent)
     star_parameter: StarParameterConfig = field(default_factory=StarParameterConfig)
-    manual_counts: list[int] = field(default_factory=list)
     trash_star_count: int = field(default_factory=lambda: get_app_config().defaults.trash_star_count)
     trash_min_distance: float = field(default_factory=lambda: get_app_config().defaults.trash_min_distance)
     viewport_scale: float = field(default_factory=lambda: get_app_config().defaults.viewport_scale)
     viewport_offset: Point = field(default_factory=lambda: Point(0.0, 0.0))
 
-    def resolved_size(self, index: int) -> ClusterSize:
-        if 0 <= index < len(self.size_overrides_enabled) and self.size_overrides_enabled[index]:
-            return self.size_overrides[index]
-        return self.shared_size
+    def placement_size_for_shape(self, shape_kind: ShapeKind) -> ClusterSize:
+        if shape_kind is ShapeKind.CIRCLE:
+            return self.placement_circle_size
+        return self.placement_rectangle_size
+
+    def selected_clusters(self) -> list[ClusterInstance]:
+        selected_ids = set(self.selected_cluster_ids)
+        return [cluster for cluster in self.clusters if cluster.cluster_id in selected_ids]
+
+    def cluster_by_id(self, cluster_id: int) -> ClusterInstance | None:
+        for cluster in self.clusters:
+            if cluster.cluster_id == cluster_id:
+                return cluster
+        return None
+
+    def cluster_index_by_id(self, cluster_id: int) -> int | None:
+        for index, cluster in enumerate(self.clusters):
+            if cluster.cluster_id == cluster_id:
+                return index
+        return None
+
+    def is_selected(self, cluster_id: int) -> bool:
+        return cluster_id in self.selected_cluster_ids
+
+    def clear_selection(self) -> None:
+        self.selected_cluster_ids.clear()
+
+    def select_only(self, cluster_id: int) -> None:
+        self.selected_cluster_ids = [cluster_id]
+
+    def toggle_selection(self, cluster_id: int) -> None:
+        if cluster_id in self.selected_cluster_ids:
+            self.selected_cluster_ids = [selected_id for selected_id in self.selected_cluster_ids if selected_id != cluster_id]
+            return
+        self.selected_cluster_ids.append(cluster_id)
+
+    def prune_selection(self) -> None:
+        valid_ids = {cluster.cluster_id for cluster in self.clusters}
+        self.selected_cluster_ids = [cluster_id for cluster_id in self.selected_cluster_ids if cluster_id in valid_ids]
+
+    def add_cluster(self, shape_kind: ShapeKind, center: Point, size: ClusterSize | None = None) -> ClusterInstance:
+        cluster = ClusterInstance(
+            cluster_id=self.next_cluster_id,
+            shape_kind=shape_kind,
+            center=center,
+            size=(size or self.placement_size_for_shape(shape_kind)).copy(),
+        )
+        self.next_cluster_id += 1
+        self.clusters.append(cluster)
+        return cluster
+
+    def delete_selected_clusters(self) -> None:
+        selected_ids = set(self.selected_cluster_ids)
+        if not selected_ids:
+            return
+        self.clusters = [cluster for cluster in self.clusters if cluster.cluster_id not in selected_ids]
+        self.selected_cluster_ids.clear()
+
+    def selection_shape_kind(self) -> ShapeKind | None:
+        selected = self.selected_clusters()
+        if not selected:
+            return None
+        first_kind = selected[0].shape_kind
+        if all(cluster.shape_kind is first_kind for cluster in selected):
+            return first_kind
+        return None
