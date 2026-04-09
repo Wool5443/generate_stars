@@ -35,13 +35,19 @@ def make_cluster(
     radius: float = 10.0,
     width: float = 10.0,
     height: float = 10.0,
+    vertices_local: list[Point] | None = None,
     manual_star_count: int = 0,
 ) -> ClusterInstance:
     return ClusterInstance(
         cluster_id=cluster_id,
         shape_kind=shape_kind,
         center=center,
-        size=ClusterSize(radius=radius, width=width, height=height),
+        size=ClusterSize(
+            radius=radius,
+            width=width,
+            height=height,
+            vertices_local=[Point(vertex.x, vertex.y) for vertex in vertices_local or []],
+        ),
         manual_star_count=manual_star_count,
     )
 
@@ -123,6 +129,23 @@ class GeneratorTests(unittest.TestCase):
             self.assertGreaterEqual(point.y, center.y - size.height / 2.0)
             self.assertLessEqual(point.y, center.y + size.height / 2.0)
 
+    def test_polygon_sampling_stays_inside_shape(self) -> None:
+        rng = random.Random(18)
+        polygon = get_shape(ShapeKind.POLYGON)
+        center = Point(25.0, -30.0)
+        size = ClusterSize(
+            vertices_local=[
+                Point(-20.0, -10.0),
+                Point(10.0, -18.0),
+                Point(25.0, -2.0),
+                Point(15.0, 16.0),
+                Point(-12.0, 20.0),
+            ]
+        )
+        for _ in range(200):
+            point = polygon.sample_point(center, size, rng)
+            self.assertLessEqual(polygon.edge_distance(point, center, size), 1e-9)
+
     def test_trash_points_respect_edge_distance(self) -> None:
         rng = random.Random(19)
         cluster = ClusterConfig(
@@ -140,6 +163,31 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(len(points), 50)
         for point in points:
             self.assertGreaterEqual(circle.edge_distance(point, cluster.center, cluster.size), 15.0)
+
+    def test_trash_points_respect_polygon_edge_distance(self) -> None:
+        rng = random.Random(20)
+        cluster = ClusterConfig(
+            shape_kind=ShapeKind.POLYGON,
+            center=Point(10.0, 5.0),
+            size=ClusterSize(
+                vertices_local=[
+                    Point(-20.0, -10.0),
+                    Point(5.0, -15.0),
+                    Point(25.0, 10.0),
+                    Point(-5.0, 18.0),
+                ]
+            ),
+        )
+        polygon = get_shape(ShapeKind.POLYGON)
+        points = generate_trash_points(
+            cluster_configs=[cluster],
+            count=40,
+            min_edge_distance=12.0,
+            rng=rng,
+        )
+        self.assertEqual(len(points), 40)
+        for point in points:
+            self.assertGreaterEqual(polygon.edge_distance(point, cluster.center, cluster.size), 12.0)
 
     def test_export_format_uses_commas(self) -> None:
         payload = format_points_for_export([Point(1.25, -3.5), Point(0.0, 2.125)], precision=3)
@@ -216,6 +264,27 @@ class GeneratorTests(unittest.TestCase):
         )
         self.assertIn("Star parameter max must be greater than or equal to min.", validate_state(state))
 
+    def test_validate_state_rejects_self_intersecting_polygon(self) -> None:
+        state = AppState(
+            total_cluster_stars=10,
+            clusters=[
+                make_cluster(
+                    1,
+                    ShapeKind.POLYGON,
+                    Point(0.0, 0.0),
+                    vertices_local=[
+                        Point(-10.0, -10.0),
+                        Point(10.0, 10.0),
+                        Point(-10.0, 10.0),
+                        Point(10.0, -10.0),
+                    ],
+                )
+            ],
+        )
+        self.assertTrue(
+            any("Polygon must be simple and non-self-intersecting." in error for error in validate_state(state))
+        )
+
     def test_validate_state_requires_cluster_for_cluster_stars(self) -> None:
         state = AppState(total_cluster_stars=5)
         self.assertIn("Cluster stars require at least one cluster.", validate_state(state))
@@ -230,6 +299,17 @@ class GeneratorTests(unittest.TestCase):
             clusters=[
                 make_cluster(1, ShapeKind.CIRCLE, Point(-80.0, 0.0), radius=20.0),
                 make_cluster(2, ShapeKind.RECTANGLE, Point(80.0, 0.0), width=30.0, height=18.0),
+                make_cluster(
+                    3,
+                    ShapeKind.POLYGON,
+                    Point(0.0, 60.0),
+                    vertices_local=[
+                        Point(-18.0, -12.0),
+                        Point(12.0, -16.0),
+                        Point(20.0, 8.0),
+                        Point(-10.0, 18.0),
+                    ],
+                ),
             ],
         )
         generated = generate_star_field(state, rng=rng)

@@ -97,7 +97,7 @@ trash_distance_max = 10000.0
 ready_status = "Ready to generate."
 reset_positions_status = "Cluster positions reset."
 save_dialog_title = "Save Star Coordinates"
-shape_interaction_hint = "Use the toolbar or V/C/R to switch tools. Click to place clusters, drag empty space to box-select, Ctrl+click toggles selection, and Delete removes the current selection. Space+LMB pans."
+shape_interaction_hint = "Use the toolbar or V/C/R/P to switch tools. Click to place circles and rectangles. Polygon mode adds vertices with each click; click the first vertex to finish and press Escape to cancel the draft. Drag empty space to box-select, Ctrl+click toggles selection, Delete removes the current selection, and Space+LMB pans."
 trash_note = "Trash stars are sampled from an automatic bounding box around all clusters and kept outside each cluster by the requested edge distance."
 manual_counts_note = "Manual cluster star counts update the total automatically."
 

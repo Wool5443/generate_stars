@@ -7,7 +7,7 @@ import random
 
 from .config import AppConfig, get_app_config
 from .models import AppState, ClusterConfig, ClusterInstance, ClusterSize, DistributionMode, Point, ShapeKind, StarParameterConfig, StarRecord
-from .shapes import BoundingBox, get_shape
+from .shapes import BoundingBox, get_shape, validate_polygon_vertices
 
 
 class GenerationError(RuntimeError):
@@ -54,6 +54,9 @@ def validate_cluster_size(shape_kind: ShapeKind, size: ClusterSize, label: str) 
             errors.append(f"{label} width must be greater than zero.")
         if size.height <= 0.0:
             errors.append(f"{label} height must be greater than zero.")
+    if shape_kind is ShapeKind.POLYGON:
+        for error in validate_polygon_vertices(size.vertices_local):
+            errors.append(f"{label}: {error}")
     return errors
 
 

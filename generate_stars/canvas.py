@@ -12,9 +12,14 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk
 
 from .config import AppConfig
-from .generator import preview_cluster_counts, resolve_cluster_configs
+from .generator import preview_cluster_counts
 from .models import AppState, CanvasTool, Point, ShapeKind
-from .shapes import get_shape
+from .shapes import (
+    get_shape,
+    polygon_geometry_from_world_vertices,
+    polygon_world_vertices,
+    validate_polygon_vertices,
+)
 
 
 class StarCanvas(Gtk.DrawingArea):
@@ -23,24 +28,38 @@ class StarCanvas(Gtk.DrawingArea):
         state: AppState,
         is_space_pressed: Callable[[], bool],
         config: AppConfig,
+        on_prepare_interaction: Callable[[], None],
         on_state_changed: Callable[[bool], None],
+        on_edit_started: Callable[[], None],
+        on_edit_finished: Callable[[bool], None],
     ) -> None:
         super().__init__()
         self.state = state
         self.config = config
         self._is_space_pressed = is_space_pressed
+        self._on_prepare_interaction = on_prepare_interaction
         self._on_state_changed = on_state_changed
+        self._on_edit_started = on_edit_started
+        self._on_edit_finished = on_edit_finished
         self._pointer_position = Point(0.0, 0.0)
         self._press_position = Point(0.0, 0.0)
         self._last_drag_position = Point(0.0, 0.0)
         self._primary_button_down = False
         self._drag_mode: str | None = None
         self._active_cluster_id: int | None = None
+        self._active_vertex_cluster_id: int | None = None
+        self._active_vertex_index: int | None = None
         self._hovered_cluster_id: int | None = None
+        self._hovered_vertex_cluster_id: int | None = None
+        self._hovered_vertex_index: int | None = None
         self._press_cluster_id: int | None = None
+        self._press_vertex_cluster_id: int | None = None
+        self._press_vertex_index: int | None = None
         self._press_ctrl = False
         self._selection_box_start: Point | None = None
         self._selection_box_end: Point | None = None
+        self._polygon_draft_vertices: list[Point] = []
+        self._polygon_draft_preview: Point | None = None
         self._drag_threshold_px = max(4.0, self.config.canvas.cluster_hit_tolerance_px)
         self._marker_radius_px = self.config.canvas.center_marker_radius_px
 
@@ -66,6 +85,38 @@ class StarCanvas(Gtk.DrawingArea):
         scroll = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
         scroll.connect("scroll", self._on_scroll)
         self.add_controller(scroll)
+
+    def has_polygon_draft(self) -> bool:
+        return bool(self._polygon_draft_vertices)
+
+    def cancel_polygon_draft(self) -> bool:
+        if not self._polygon_draft_vertices:
+            return False
+        self._clear_polygon_draft()
+        self.queue_draw()
+        return True
+
+    def complete_polygon_draft(self) -> str | None:
+        if not self._polygon_draft_vertices:
+            return None
+
+        errors = validate_polygon_vertices(self._polygon_draft_vertices)
+        if errors:
+            return errors[0]
+
+        center, size = polygon_geometry_from_world_vertices(self._polygon_draft_vertices)
+        self._on_edit_started()
+        cluster = self.state.add_cluster(ShapeKind.POLYGON, center, size)
+        self.state.select_only(cluster.cluster_id)
+        self._clear_polygon_draft()
+        self._hovered_cluster_id = cluster.cluster_id
+        self._on_edit_finished(True)
+        self.queue_draw()
+        return None
+
+    def _clear_polygon_draft(self) -> None:
+        self._polygon_draft_vertices.clear()
+        self._polygon_draft_preview = None
 
     def _screen_center(self) -> Point:
         return Point(self.get_allocated_width() / 2.0, self.get_allocated_height() / 2.0)
@@ -94,18 +145,27 @@ class StarCanvas(Gtk.DrawingArea):
         max_y = max(top_left.y, bottom_right.y)
         return min_x, max_x, min_y, max_y
 
-    def _selection_shape_kind(self) -> ShapeKind | None:
-        return self.state.selection_shape_kind()
-
     def _modifier_state_is_ctrl(self, state: Gdk.ModifierType) -> bool:
         return bool(state & Gdk.ModifierType.CONTROL_MASK)
 
     def _press_moved_far_enough(self, x: float, y: float) -> bool:
         return math.hypot(x - self._press_position.x, y - self._press_position.y) >= self._drag_threshold_px
 
+    def _world_hit_tolerance(self) -> float:
+        return self.config.canvas.cluster_hit_tolerance_px / max(self.state.viewport_scale, 1e-6)
+
+    def _selected_polygon_for_vertex_edit(self):
+        if self.state.active_tool is not CanvasTool.SELECT or self.has_polygon_draft():
+            return None
+
+        selected = self.state.selected_clusters()
+        if len(selected) != 1 or selected[0].shape_kind is not ShapeKind.POLYGON:
+            return None
+        return selected[0]
+
     def _hit_test_cluster(self, x: float, y: float) -> int | None:
         world_point = self.screen_to_world(x, y)
-        tolerance = self.config.canvas.cluster_hit_tolerance_px / max(self.state.viewport_scale, 1e-6)
+        tolerance = self._world_hit_tolerance()
 
         for cluster in reversed(self.state.clusters):
             shape = get_shape(cluster.shape_kind)
@@ -113,11 +173,62 @@ class StarCanvas(Gtk.DrawingArea):
                 return cluster.cluster_id
         return None
 
+    def _hit_test_polygon_vertex(self, x: float, y: float) -> tuple[int, int] | None:
+        cluster = self._selected_polygon_for_vertex_edit()
+        if cluster is None:
+            return None
+
+        world_point = self.screen_to_world(x, y)
+        tolerance = max(self._marker_radius_px, self.config.canvas.cluster_hit_tolerance_px) / max(
+            self.state.viewport_scale,
+            1e-6,
+        )
+        vertices = polygon_world_vertices(cluster.center, cluster.size.vertices_local)
+        closest_index: int | None = None
+        closest_distance = tolerance
+        for index, vertex in enumerate(vertices):
+            distance = math.hypot(world_point.x - vertex.x, world_point.y - vertex.y)
+            if distance <= closest_distance:
+                closest_distance = distance
+                closest_index = index
+
+        if closest_index is None:
+            return None
+        return cluster.cluster_id, closest_index
+
     def _set_hovered_cluster(self, cluster_id: int | None) -> None:
         if self._hovered_cluster_id == cluster_id:
             return
         self._hovered_cluster_id = cluster_id
         self.queue_draw()
+
+    def _set_hovered_vertex(self, cluster_id: int | None, vertex_index: int | None) -> None:
+        if (
+            self._hovered_vertex_cluster_id == cluster_id
+            and self._hovered_vertex_index == vertex_index
+        ):
+            return
+        self._hovered_vertex_cluster_id = cluster_id
+        self._hovered_vertex_index = vertex_index
+        self.queue_draw()
+
+    def _update_hover_state(self, x: float, y: float) -> None:
+        if self.has_polygon_draft() and self.state.active_tool is CanvasTool.POLYGON:
+            self._set_hovered_vertex(None, None)
+            self._set_hovered_cluster(None)
+            self._polygon_draft_preview = self.screen_to_world(x, y)
+            self.queue_draw()
+            return
+
+        vertex_hit = self._hit_test_polygon_vertex(x, y)
+        if vertex_hit is not None:
+            cluster_id, vertex_index = vertex_hit
+            self._set_hovered_vertex(cluster_id, vertex_index)
+            self._set_hovered_cluster(cluster_id)
+            return
+
+        self._set_hovered_vertex(None, None)
+        self._set_hovered_cluster(self._hit_test_cluster(x, y))
 
     def _cluster_ids_in_selection_box(self) -> list[int]:
         if self._selection_box_start is None or self._selection_box_end is None:
@@ -133,13 +244,13 @@ class StarCanvas(Gtk.DrawingArea):
         selected_ids: list[int] = []
         for cluster in self.state.clusters:
             bounds = get_shape(cluster.shape_kind).bounding_box(cluster.center, cluster.size)
-            intersects = not (
-                bounds.max_x < min_x
-                or bounds.min_x > max_x
-                or bounds.max_y < min_y
-                or bounds.min_y > max_y
+            enclosed = (
+                bounds.min_x >= min_x
+                and bounds.max_x <= max_x
+                and bounds.min_y >= min_y
+                and bounds.max_y <= max_y
             )
-            if intersects:
+            if enclosed:
                 selected_ids.append(cluster.cluster_id)
         return selected_ids
 
@@ -153,35 +264,91 @@ class StarCanvas(Gtk.DrawingArea):
             self._drag_mode = "pan"
             return
 
-        if self.state.active_tool is CanvasTool.SELECT:
-            if self._press_cluster_id is not None and not self._press_ctrl:
-                if not self.state.is_selected(self._press_cluster_id):
-                    self.state.select_only(self._press_cluster_id)
-                    self._on_state_changed(False)
-                self._active_cluster_id = self._press_cluster_id
-                self._drag_mode = "move"
-                self._set_hovered_cluster(self._press_cluster_id)
-                return
-
-            if self._press_cluster_id is None:
-                self._drag_mode = "box"
-                self._selection_box_start = Point(self._press_position.x, self._press_position.y)
-                self._selection_box_end = Point(x, y)
-                self._set_hovered_cluster(None)
-                self.queue_draw()
-                return
+        if self.state.active_tool is not CanvasTool.SELECT:
             return
+
+        if self._press_vertex_cluster_id is not None and not self._press_ctrl:
+            self._active_vertex_cluster_id = self._press_vertex_cluster_id
+            self._active_vertex_index = self._press_vertex_index
+            self._on_edit_started()
+            self._drag_mode = "vertex"
+            self._set_hovered_cluster(self._press_vertex_cluster_id)
+            self._set_hovered_vertex(self._press_vertex_cluster_id, self._press_vertex_index)
+            return
+
+        if self._press_cluster_id is not None and not self._press_ctrl:
+            if not self.state.is_selected(self._press_cluster_id):
+                self.state.select_only(self._press_cluster_id)
+                self._on_state_changed(False)
+            self._active_cluster_id = self._press_cluster_id
+            self._on_edit_started()
+            self._drag_mode = "move"
+            self._set_hovered_cluster(self._press_cluster_id)
+            return
+
+        if self._press_cluster_id is None and self._press_vertex_cluster_id is None:
+            self._drag_mode = "box"
+            self._selection_box_start = Point(self._press_position.x, self._press_position.y)
+            self._selection_box_end = Point(x, y)
+            self._set_hovered_vertex(None, None)
+            self._set_hovered_cluster(None)
+            self.queue_draw()
 
     def _place_cluster_at(self, x: float, y: float) -> None:
         shape_kind = self.state.active_tool.shape_kind()
-        if shape_kind is None:
+        if shape_kind is None or shape_kind is ShapeKind.POLYGON:
             return
+        self._on_edit_started()
         cluster = self.state.add_cluster(shape_kind, self.screen_to_world(x, y))
         self.state.select_only(cluster.cluster_id)
         self._set_hovered_cluster(cluster.cluster_id)
-        self._on_state_changed(True)
+        self._on_edit_finished(True)
 
-    def _on_pressed(self, gesture: Gtk.GestureClick, _: int, x: float, y: float) -> None:
+    def _append_polygon_draft_vertex(self, world_point: Point) -> None:
+        tolerance = self._world_hit_tolerance()
+        if self._polygon_draft_vertices:
+            last = self._polygon_draft_vertices[-1]
+            if math.hypot(world_point.x - last.x, world_point.y - last.y) <= tolerance:
+                return
+        self._polygon_draft_vertices.append(world_point)
+        self._polygon_draft_preview = world_point
+
+    def _polygon_draft_close_hit(self, x: float, y: float) -> bool:
+        if len(self._polygon_draft_vertices) < 3:
+            return False
+
+        first_vertex = self._polygon_draft_vertices[0]
+        world_point = self.screen_to_world(x, y)
+        return math.hypot(world_point.x - first_vertex.x, world_point.y - first_vertex.y) <= self._world_hit_tolerance()
+
+    def _apply_vertex_drag(self, x: float, y: float) -> None:
+        if self._active_vertex_cluster_id is None or self._active_vertex_index is None:
+            return
+
+        cluster = self.state.cluster_by_id(self._active_vertex_cluster_id)
+        if cluster is None or cluster.shape_kind is not ShapeKind.POLYGON:
+            return
+
+        world_vertices = polygon_world_vertices(cluster.center, cluster.size.vertices_local)
+        if self._active_vertex_index >= len(world_vertices):
+            return
+
+        world_vertices[self._active_vertex_index] = self.screen_to_world(x, y)
+        if validate_polygon_vertices(world_vertices):
+            return
+
+        center, size = polygon_geometry_from_world_vertices(
+            world_vertices,
+            polygon_scale=cluster.size.polygon_scale,
+        )
+        cluster.center = center
+        cluster.size = size
+        self._set_hovered_cluster(cluster.cluster_id)
+        self._set_hovered_vertex(cluster.cluster_id, self._active_vertex_index)
+        self.queue_draw()
+
+    def _on_pressed(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        self._on_prepare_interaction()
         self.grab_focus()
         self._pointer_position = Point(x, y)
         self._press_position = Point(x, y)
@@ -189,12 +356,25 @@ class StarCanvas(Gtk.DrawingArea):
         self._primary_button_down = True
         self._drag_mode = "pan" if self._is_space_pressed() else None
         self._active_cluster_id = None
+        self._active_vertex_cluster_id = None
+        self._active_vertex_index = None
         self._press_cluster_id = self._hit_test_cluster(x, y)
+        self._press_vertex_cluster_id = None
+        self._press_vertex_index = None
         self._press_ctrl = self._modifier_state_is_ctrl(gesture.get_current_event_state())
         self._selection_box_start = None
         self._selection_box_end = None
 
-    def _on_released(self, gesture: Gtk.GestureClick, _: int, x: float, y: float) -> None:
+        if self.state.active_tool is CanvasTool.SELECT and not self._is_space_pressed():
+            vertex_hit = self._hit_test_polygon_vertex(x, y)
+            if vertex_hit is not None:
+                self._press_vertex_cluster_id, self._press_vertex_index = vertex_hit
+                self._press_cluster_id = self._press_vertex_cluster_id
+
+        if self.state.active_tool is CanvasTool.POLYGON and self.has_polygon_draft():
+            self._polygon_draft_preview = self.screen_to_world(x, y)
+
+    def _on_released(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         self._pointer_position = Point(x, y)
         self._last_drag_position = Point(x, y)
         self._primary_button_down = False
@@ -204,10 +384,16 @@ class StarCanvas(Gtk.DrawingArea):
             self._selection_box_start = None
             self._selection_box_end = None
             self._on_state_changed(False)
+        elif self._drag_mode in {"move", "vertex"}:
+            self._on_edit_finished(False)
         elif self._drag_mode is None:
             if not self._is_space_pressed():
                 if self.state.active_tool is CanvasTool.SELECT:
-                    if self._press_cluster_id is not None:
+                    if self._press_vertex_cluster_id is not None:
+                        if self._press_ctrl:
+                            self.state.toggle_selection(self._press_vertex_cluster_id)
+                            self._on_state_changed(False)
+                    elif self._press_cluster_id is not None:
                         if self._press_ctrl:
                             self.state.toggle_selection(self._press_cluster_id)
                         else:
@@ -216,24 +402,44 @@ class StarCanvas(Gtk.DrawingArea):
                     elif not self._press_ctrl:
                         self.state.clear_selection()
                         self._on_state_changed(False)
+                elif self.state.active_tool is CanvasTool.POLYGON:
+                    if not self._press_moved_far_enough(x, y):
+                        if self._polygon_draft_close_hit(x, y):
+                            self.complete_polygon_draft()
+                        else:
+                            self._append_polygon_draft_vertex(self.screen_to_world(x, y))
                 elif self._press_cluster_id is None and not self._press_moved_far_enough(x, y):
                     self._place_cluster_at(x, y)
 
         self._drag_mode = None
         self._active_cluster_id = None
+        self._active_vertex_cluster_id = None
+        self._active_vertex_index = None
         self._press_cluster_id = None
+        self._press_vertex_cluster_id = None
+        self._press_vertex_index = None
         self._press_ctrl = False
-        self._set_hovered_cluster(self._hit_test_cluster(x, y))
+
+        if self.state.active_tool is CanvasTool.POLYGON and self.has_polygon_draft():
+            self._polygon_draft_preview = self.screen_to_world(x, y)
+            self._set_hovered_vertex(None, None)
+            self._set_hovered_cluster(None)
+        else:
+            self._update_hover_state(x, y)
         self.queue_draw()
 
     def _on_motion(self, controller: Gtk.EventControllerMotion, x: float, y: float) -> None:
         self._pointer_position = Point(x, y)
+
         if not self._primary_button_down:
-            self._set_hovered_cluster(self._hit_test_cluster(x, y))
+            self._update_hover_state(x, y)
             return
 
         self._start_drag_if_needed(x, y)
         if self._drag_mode is None:
+            if self.state.active_tool is CanvasTool.POLYGON and self.has_polygon_draft():
+                self._polygon_draft_preview = self.screen_to_world(x, y)
+                self.queue_draw()
             return
 
         dx = x - self._last_drag_position.x
@@ -243,6 +449,7 @@ class StarCanvas(Gtk.DrawingArea):
         if self._drag_mode == "pan":
             self.state.viewport_offset.x += dx
             self.state.viewport_offset.y += dy
+            self._set_hovered_vertex(None, None)
             self._set_hovered_cluster(None)
             self.queue_draw()
             return
@@ -258,13 +465,21 @@ class StarCanvas(Gtk.DrawingArea):
             self.queue_draw()
             return
 
+        if self._drag_mode == "vertex":
+            self._apply_vertex_drag(x, y)
+            return
+
         if self._drag_mode == "box":
             self._selection_box_end = Point(x, y)
             self.queue_draw()
 
     def _on_leave(self, controller: Gtk.EventControllerMotion) -> None:
         self._pointer_position = self._screen_center()
+        if self.has_polygon_draft() and self.state.active_tool is CanvasTool.POLYGON:
+            self._polygon_draft_preview = None
+            self.queue_draw()
         if not self._primary_button_down:
+            self._set_hovered_vertex(None, None)
             self._set_hovered_cluster(None)
 
     def _format_hover_value(self, value: float) -> str:
@@ -288,9 +503,11 @@ class StarCanvas(Gtk.DrawingArea):
 
             if cluster.shape_kind is ShapeKind.CIRCLE:
                 lines.append(f"Radius: {self._format_hover_value(cluster.size.radius)}")
-            else:
+            elif cluster.shape_kind is ShapeKind.RECTANGLE:
                 lines.append(f"Width: {self._format_hover_value(cluster.size.width)}")
                 lines.append(f"Height: {self._format_hover_value(cluster.size.height)}")
+            else:
+                lines.append(f"Vertices: {len(cluster.size.vertices_local)}")
 
             if counts is not None and index < len(counts):
                 lines.append(f"Stars: {counts[index]}")
@@ -340,7 +557,10 @@ class StarCanvas(Gtk.DrawingArea):
 
         zoom_factor = self.config.canvas.zoom_factor if dy < 0.0 else 1.0 / self.config.canvas.zoom_factor
         old_scale = self.state.viewport_scale
-        new_scale = max(self.config.canvas.min_viewport_scale, min(self.config.canvas.max_viewport_scale, old_scale * zoom_factor))
+        new_scale = max(
+            self.config.canvas.min_viewport_scale,
+            min(self.config.canvas.max_viewport_scale, old_scale * zoom_factor),
+        )
         if math.isclose(old_scale, new_scale):
             return True
 
@@ -507,6 +727,64 @@ class StarCanvas(Gtk.DrawingArea):
                 context.set_source_rgba(*self.config.colors.inactive_cluster_marker)
             context.fill()
 
+    def _draw_polygon_handles(self, context: cairo.Context) -> None:
+        cluster = self._selected_polygon_for_vertex_edit()
+        if cluster is None:
+            return
+
+        vertices = polygon_world_vertices(cluster.center, cluster.size.vertices_local)
+        radius = self._marker_radius_px / self.state.viewport_scale
+        line_width = self.config.canvas.cluster_outline_width / self.state.viewport_scale
+
+        for index, vertex in enumerate(vertices):
+            is_active = (
+                self._hovered_vertex_cluster_id == cluster.cluster_id
+                and self._hovered_vertex_index == index
+            ) or (
+                self._active_vertex_cluster_id == cluster.cluster_id
+                and self._active_vertex_index == index
+            )
+            context.new_path()
+            context.arc(vertex.x, vertex.y, radius, 0.0, math.tau)
+            if is_active:
+                context.set_source_rgba(*self.config.colors.active_cluster_marker)
+            else:
+                context.set_source_rgba(*self.config.colors.inactive_cluster_marker)
+            context.fill_preserve()
+            if is_active:
+                context.set_source_rgba(*self.config.colors.active_cluster_outline)
+            else:
+                context.set_source_rgba(*self.config.colors.inactive_cluster_outline)
+            context.set_line_width(line_width)
+            context.stroke()
+
+    def _draw_polygon_draft(self, context: cairo.Context) -> None:
+        if not self._polygon_draft_vertices:
+            return
+
+        context.save()
+        context.set_line_width(self.config.canvas.cluster_outline_width / self.state.viewport_scale)
+        context.set_source_rgba(*self.config.colors.active_cluster_outline)
+        context.move_to(self._polygon_draft_vertices[0].x, self._polygon_draft_vertices[0].y)
+        for vertex in self._polygon_draft_vertices[1:]:
+            context.line_to(vertex.x, vertex.y)
+        if self._polygon_draft_preview is not None:
+            context.line_to(self._polygon_draft_preview.x, self._polygon_draft_preview.y)
+        context.stroke()
+
+        radius = self._marker_radius_px / self.state.viewport_scale
+        for index, vertex in enumerate(self._polygon_draft_vertices):
+            context.new_path()
+            context.arc(vertex.x, vertex.y, radius, 0.0, math.tau)
+            if len(self._polygon_draft_vertices) >= 3 and index == 0:
+                context.set_source_rgba(*self.config.colors.active_cluster_outline)
+            elif index == len(self._polygon_draft_vertices) - 1:
+                context.set_source_rgba(*self.config.colors.active_cluster_marker)
+            else:
+                context.set_source_rgba(*self.config.colors.inactive_cluster_marker)
+            context.fill()
+        context.restore()
+
     def _draw_selection_box(self, context: cairo.Context) -> None:
         if self._drag_mode != "box" or self._selection_box_start is None or self._selection_box_end is None:
             return
@@ -536,6 +814,8 @@ class StarCanvas(Gtk.DrawingArea):
         context.scale(self.state.viewport_scale, -self.state.viewport_scale)
         self._draw_grid(context)
         self._draw_clusters(context)
+        self._draw_polygon_handles(context)
+        self._draw_polygon_draft(context)
         context.restore()
         self._draw_axis_labels(context)
         self._draw_hover_info(context)

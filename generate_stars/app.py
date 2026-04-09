@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import sys
 
@@ -13,8 +14,10 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 from .canvas import StarCanvas
 from .config import AppConfig, ConfigIssue, initialize_app_config
 from .generator import GenerationError, even_counts, format_points_for_export, generate_star_field, validate_state
-from .models import AppState, CanvasTool, ClusterSize, DistributionMode, ShapeKind
+from .history import HistoryManager
+from .models import AppState, CanvasTool, ClusterSize, DistributionMode, Point, ShapeKind
 from .preferences import load_last_save_path, save_last_save_path
+from .shapes import polygon_local_bounds, polygon_size_from_local_vertices
 
 
 class StarClusterWindow(Gtk.ApplicationWindow):
@@ -25,11 +28,14 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.set_default_size(config.window.default_width, config.window.default_height)
 
         self.state = AppState()
+        self._history = HistoryManager(limit=100)
         self._last_save_path = load_last_save_path()
         self._syncing_ui = False
         self._space_pressed = False
+        self._scale_spin_hovered = False
         self._status_text = self.config.text.ready_status
         self._status_kind = "neutral"
+        self._continuous_history_source: Gtk.Widget | None = None
 
         self._install_key_controller()
         self._build_ui()
@@ -79,17 +85,21 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         sidebar.add_css_class("sidebar")
         root.append(sidebar)
 
-        sidebar_scroller = Gtk.ScrolledWindow()
-        sidebar_scroller.set_vexpand(True)
-        sidebar_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        sidebar.append(sidebar_scroller)
+        self.sidebar_scroller = Gtk.ScrolledWindow()
+        self.sidebar_scroller.set_vexpand(True)
+        self.sidebar_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        sidebar_scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        sidebar_scroll.connect("scroll", self._on_sidebar_scroll_capture)
+        self.sidebar_scroller.add_controller(sidebar_scroll)
+        sidebar.append(self.sidebar_scroller)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.sidebar_content_spacing)
         content.set_margin_top(self.config.ui.sidebar_margin)
         content.set_margin_bottom(self.config.ui.sidebar_margin)
         content.set_margin_start(self.config.ui.sidebar_margin)
         content.set_margin_end(self.config.ui.sidebar_margin)
-        sidebar_scroller.set_child(content)
+        self.sidebar_scroller.set_child(content)
 
         content.append(self._build_cluster_section())
         content.append(self._build_distribution_section())
@@ -128,7 +138,10 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self.state,
             self._is_space_pressed,
             self.config,
+            self._prepare_for_canvas_interaction,
             self._on_canvas_state_changed,
+            self._begin_canvas_edit,
+            self._commit_canvas_edit,
         )
         canvas_shell.append(self.canvas)
 
@@ -171,24 +184,77 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         )
         return spin
 
+    def _step_spin_from_scroll(self, spin: Gtk.SpinButton, dy: float) -> bool:
+        if dy == 0.0 or not spin.get_sensitive():
+            return False
+        if dy < 0.0:
+            spin.spin(Gtk.SpinType.STEP_FORWARD, 1.0)
+        else:
+            spin.spin(Gtk.SpinType.STEP_BACKWARD, 1.0)
+        return True
+
+    def _build_scale_spin_host(self) -> Gtk.Box:
+        host = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        motion = Gtk.EventControllerMotion.new()
+        motion.connect("enter", self._on_scale_spin_enter)
+        motion.connect("leave", self._on_scale_spin_leave)
+        host.add_controller(motion)
+        host.append(self.selection_polygon_scale_spin)
+        return host
+
+    def _on_scale_spin_enter(self, controller: Gtk.EventControllerMotion, x: float, y: float) -> None:
+        self._scale_spin_hovered = True
+
+    def _on_scale_spin_leave(self, controller: Gtk.EventControllerMotion) -> None:
+        self._scale_spin_hovered = False
+
+    def _on_sidebar_scroll_capture(
+        self,
+        controller: Gtk.EventControllerScroll,
+        _dx: float,
+        dy: float,
+    ) -> bool:
+        if (
+            not self._scale_spin_hovered
+            or not self.selection_polygon_scale_row.get_visible()
+        ):
+            return False
+        return self._step_spin_from_scroll(self.selection_polygon_scale_spin, dy)
+
+    def _attach_continuous_history(self, widget: Gtk.Widget) -> None:
+        focus = Gtk.EventControllerFocus.new()
+        focus.connect("leave", self._on_continuous_history_leave, widget)
+        widget.add_controller(focus)
+
     def _build_canvas_toolbar(self) -> Gtk.Box:
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=self.config.ui.row_spacing)
         toolbar.add_css_class("panel")
 
+        self.undo_button = Gtk.Button(label="Undo")
+        self.undo_button.connect("clicked", self._on_undo_clicked)
+        self.redo_button = Gtk.Button(label="Redo")
+        self.redo_button.connect("clicked", self._on_redo_clicked)
+
         self.select_tool_button = Gtk.ToggleButton(label="Select (V)")
         self.circle_tool_button = Gtk.ToggleButton(label="Circle (C)")
         self.rectangle_tool_button = Gtk.ToggleButton(label="Rectangle (R)")
+        self.polygon_tool_button = Gtk.ToggleButton(label="Polygon (P)")
 
         self.circle_tool_button.set_group(self.select_tool_button)
         self.rectangle_tool_button.set_group(self.select_tool_button)
+        self.polygon_tool_button.set_group(self.select_tool_button)
 
         self.select_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.SELECT)
         self.circle_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.CIRCLE)
         self.rectangle_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.RECTANGLE)
+        self.polygon_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.POLYGON)
 
+        toolbar.append(self.undo_button)
+        toolbar.append(self.redo_button)
         toolbar.append(self.select_tool_button)
         toolbar.append(self.circle_tool_button)
         toolbar.append(self.rectangle_tool_button)
+        toolbar.append(self.polygon_tool_button)
         return toolbar
 
     def _build_cluster_section(self) -> Gtk.Box:
@@ -199,16 +265,19 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         panel.append(self.placement_info)
 
         self.placement_radius_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
+        self._attach_continuous_history(self.placement_radius_spin)
         self.placement_radius_spin.connect("value-changed", self._on_placement_radius_changed)
         self.placement_radius_row = self._build_row("Radius", self.placement_radius_spin)
         panel.append(self.placement_radius_row)
 
         self.placement_width_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
+        self._attach_continuous_history(self.placement_width_spin)
         self.placement_width_spin.connect("value-changed", self._on_placement_width_changed)
         self.placement_width_row = self._build_row("Width", self.placement_width_spin)
         panel.append(self.placement_width_row)
 
         self.placement_height_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
+        self._attach_continuous_history(self.placement_height_spin)
         self.placement_height_spin.connect("value-changed", self._on_placement_height_changed)
         self.placement_height_row = self._build_row("Height", self.placement_height_spin)
         panel.append(self.placement_height_row)
@@ -222,24 +291,40 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.selection_shape_combo = Gtk.ComboBoxText()
         self.selection_shape_combo.append(ShapeKind.CIRCLE.value, "Circle")
         self.selection_shape_combo.append(ShapeKind.RECTANGLE.value, "Rectangle")
+        self.selection_shape_combo.append(ShapeKind.POLYGON.value, "Polygon")
         self.selection_shape_combo.connect("changed", self._on_selection_shape_changed)
         self.selection_shape_row = self._build_row("Shape", self.selection_shape_combo)
         panel.append(self.selection_shape_row)
 
         self.selection_radius_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
+        self._attach_continuous_history(self.selection_radius_spin)
         self.selection_radius_spin.connect("value-changed", self._on_selection_radius_changed)
         self.selection_radius_row = self._build_row("Radius", self.selection_radius_spin)
         panel.append(self.selection_radius_row)
 
         self.selection_width_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
+        self._attach_continuous_history(self.selection_width_spin)
         self.selection_width_spin.connect("value-changed", self._on_selection_width_changed)
         self.selection_width_row = self._build_row("Width", self.selection_width_spin)
         panel.append(self.selection_width_row)
 
         self.selection_height_spin = self._make_spin(self.config.limits.size_min, self.config.limits.size_max, 1, digits=1)
+        self._attach_continuous_history(self.selection_height_spin)
         self.selection_height_spin.connect("value-changed", self._on_selection_height_changed)
         self.selection_height_row = self._build_row("Height", self.selection_height_spin)
         panel.append(self.selection_height_row)
+
+        self.selection_polygon_scale_spin = self._make_spin(
+            self.config.limits.size_min,
+            self.config.limits.size_max,
+            1,
+            digits=1,
+        )
+        self.selection_polygon_scale_spin.set_value(100.0)
+        self._attach_continuous_history(self.selection_polygon_scale_spin)
+        self.selection_polygon_scale_spin.connect("value-changed", self._on_selection_polygon_scale_changed)
+        self.selection_polygon_scale_row = self._build_row("Scale %", self._build_scale_spin_host())
+        panel.append(self.selection_polygon_scale_row)
 
         self.selection_size_hint = Gtk.Label(xalign=0.0)
         self.selection_size_hint.set_wrap(True)
@@ -256,6 +341,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         panel = self._build_panel("Stars")
 
         self.total_stars_spin = self._make_spin(self.config.limits.total_stars_min, self.config.limits.total_stars_max, 1)
+        self._attach_continuous_history(self.total_stars_spin)
         self.total_stars_spin.connect("value-changed", self._on_total_stars_changed)
         panel.append(self._build_row("Total cluster stars", self.total_stars_spin))
 
@@ -272,6 +358,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             1,
             digits=1,
         )
+        self._attach_continuous_history(self.deviation_spin)
         self.deviation_spin.connect("value-changed", self._on_deviation_changed)
         self.deviation_row = self._build_row("Deviation %", self.deviation_spin)
         panel.append(self.deviation_row)
@@ -300,6 +387,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
         self.parameter_name_entry = Gtk.Entry()
         self.parameter_name_entry.set_width_chars(max(12, self.config.ui.decimal_spin_width_chars))
+        self._attach_continuous_history(self.parameter_name_entry)
         self.parameter_name_entry.connect("changed", self._on_parameter_name_changed)
         self.parameter_fields_box.append(self._build_row("Name", self.parameter_name_entry))
 
@@ -309,6 +397,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             0.1,
             digits=3,
         )
+        self._attach_continuous_history(self.parameter_min_spin)
         self.parameter_min_spin.connect("value-changed", self._on_parameter_min_changed)
         self.parameter_fields_box.append(self._build_row("Min", self.parameter_min_spin))
 
@@ -318,6 +407,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             0.1,
             digits=3,
         )
+        self._attach_continuous_history(self.parameter_max_spin)
         self.parameter_max_spin.connect("value-changed", self._on_parameter_max_changed)
         self.parameter_fields_box.append(self._build_row("Max", self.parameter_max_spin))
         return panel
@@ -330,6 +420,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self.config.limits.trash_star_count_max,
             1,
         )
+        self._attach_continuous_history(self.trash_count_spin)
         self.trash_count_spin.connect("value-changed", self._on_trash_count_changed)
         panel.append(self._build_row("Trash star count", self.trash_count_spin))
 
@@ -339,6 +430,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             1,
             digits=1,
         )
+        self._attach_continuous_history(self.trash_distance_spin)
         self.trash_distance_spin.connect("value-changed", self._on_trash_distance_changed)
         panel.append(self._build_row("Min edge distance", self.trash_distance_spin))
 
@@ -375,6 +467,87 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if not selected:
             return None
         return selected[0].size
+
+    def _update_history_buttons(self) -> None:
+        self.undo_button.set_sensitive(self._history.can_undo)
+        self.redo_button.set_sensitive(self._history.can_redo)
+
+    def _ensure_continuous_history(self, widget: Gtk.Widget) -> None:
+        if self._continuous_history_source is widget:
+            return
+        self._finalize_history_transaction()
+        self._continuous_history_source = widget
+        self._history.begin(self.state)
+
+    def _finalize_history_transaction(self) -> bool:
+        changed = self._history.commit(self.state)
+        self._continuous_history_source = None
+        if changed:
+            self._update_history_buttons()
+        return changed
+
+    def _cancel_history_transaction(self) -> None:
+        self._history.cancel_pending()
+        self._continuous_history_source = None
+
+    def _on_continuous_history_leave(self, controller: Gtk.EventControllerFocus, widget: Gtk.Widget) -> None:
+        if self._continuous_history_source is widget:
+            self._finalize_history_transaction()
+
+    def _prepare_for_canvas_interaction(self) -> None:
+        self._finalize_history_transaction()
+
+    def _begin_canvas_edit(self) -> None:
+        self._finalize_history_transaction()
+        self._history.begin(self.state)
+
+    def _commit_canvas_edit(self, cluster_list_changed: bool) -> None:
+        if self.state.distribution_mode is DistributionMode.MANUAL:
+            self._sync_total_stars_for_manual_mode()
+        self._clear_status()
+        self._finalize_history_transaction()
+        self._refresh_ui(rebuild_manual_rows=cluster_list_changed)
+
+    def _run_immediate_edit(self, mutator, *, rebuild_manual_rows: bool = False) -> None:
+        self._finalize_history_transaction()
+        self._history.begin(self.state)
+        mutator()
+        self._clear_status()
+        self._finalize_history_transaction()
+        self._refresh_ui(rebuild_manual_rows=rebuild_manual_rows)
+
+    def _cancel_draft_before_history_action(self) -> bool:
+        if not self.canvas.cancel_polygon_draft():
+            return False
+        self._clear_status()
+        self._refresh_ui()
+        return True
+
+    def _perform_undo(self) -> None:
+        if self._cancel_draft_before_history_action():
+            return
+        self._finalize_history_transaction()
+        if not self._history.undo(self.state):
+            return
+        self._clear_status()
+        self._update_history_buttons()
+        self._refresh_ui(rebuild_manual_rows=True)
+
+    def _perform_redo(self) -> None:
+        if self._cancel_draft_before_history_action():
+            return
+        self._finalize_history_transaction()
+        if not self._history.redo(self.state):
+            return
+        self._clear_status()
+        self._update_history_buttons()
+        self._refresh_ui(rebuild_manual_rows=True)
+
+    def _on_undo_clicked(self, button: Gtk.Button) -> None:
+        self._perform_undo()
+
+    def _on_redo_clicked(self, button: Gtk.Button) -> None:
+        self._perform_redo()
 
     def _set_status(self, text: str, kind: str = "neutral") -> None:
         self._status_text = text
@@ -415,12 +588,20 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self.select_tool_button.set_active(self.state.active_tool is CanvasTool.SELECT)
             self.circle_tool_button.set_active(self.state.active_tool is CanvasTool.CIRCLE)
             self.rectangle_tool_button.set_active(self.state.active_tool is CanvasTool.RECTANGLE)
+            self.polygon_tool_button.set_active(self.state.active_tool is CanvasTool.POLYGON)
         finally:
             self._syncing_ui = syncing
 
     def _set_active_tool(self, tool: CanvasTool) -> None:
         if self.state.active_tool is tool:
             return
+        self._finalize_history_transaction()
+        if (
+            hasattr(self, "canvas")
+            and self.state.active_tool is CanvasTool.POLYGON
+            and tool is not CanvasTool.POLYGON
+        ):
+            self.canvas.cancel_polygon_draft()
         self.state.active_tool = tool
         self._sync_tool_buttons()
         self._refresh_ui()
@@ -443,20 +624,68 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         for cluster, count in zip(self.state.clusters, counts, strict=False):
             cluster.manual_star_count = count
 
-    def _convert_size(self, size: ClusterSize, from_shape: ShapeKind, to_shape: ShapeKind) -> ClusterSize:
-        if from_shape is to_shape:
-            return size.copy()
-        if from_shape is ShapeKind.CIRCLE and to_shape is ShapeKind.RECTANGLE:
-            span = size.radius * 2.0
-            return ClusterSize(radius=span / 2.0, width=span, height=span)
-        if from_shape is ShapeKind.RECTANGLE and to_shape is ShapeKind.CIRCLE:
-            span = max(size.width, size.height)
-            return ClusterSize(radius=span / 2.0, width=span, height=span)
-        return size.copy()
+    def _rectangle_polygon_vertices(self, width: float, height: float) -> list[Point]:
+        half_width = width / 2.0
+        half_height = height / 2.0
+        return [
+            Point(-half_width, -half_height),
+            Point(half_width, -half_height),
+            Point(half_width, half_height),
+            Point(-half_width, half_height),
+        ]
+
+    def _convert_cluster_geometry(self, cluster, target_shape: ShapeKind) -> tuple[Point, ClusterSize]:
+        current_center = Point(cluster.center.x, cluster.center.y)
+        current_size = cluster.size
+
+        if cluster.shape_kind is target_shape:
+            return current_center, current_size.copy()
+
+        if target_shape is ShapeKind.POLYGON:
+            if cluster.shape_kind is ShapeKind.CIRCLE:
+                span = max(current_size.radius * 2.0, self.config.limits.size_min)
+                return (
+                    current_center,
+                    polygon_size_from_local_vertices(self._rectangle_polygon_vertices(span, span)),
+                )
+
+            width = max(current_size.width, self.config.limits.size_min)
+            height = max(current_size.height, self.config.limits.size_min)
+            return (
+                current_center,
+                polygon_size_from_local_vertices(self._rectangle_polygon_vertices(width, height)),
+            )
+
+        if cluster.shape_kind is ShapeKind.POLYGON:
+            bounds = polygon_local_bounds(current_size.vertices_local)
+            width = max(bounds.max_x - bounds.min_x, self.config.limits.size_min)
+            height = max(bounds.max_y - bounds.min_y, self.config.limits.size_min)
+            bounds_center = Point(
+                cluster.center.x + (bounds.min_x + bounds.max_x) / 2.0,
+                cluster.center.y + (bounds.min_y + bounds.max_y) / 2.0,
+            )
+            if target_shape is ShapeKind.CIRCLE:
+                span = max(width, height)
+                return (
+                    bounds_center,
+                    ClusterSize(radius=span / 2.0, width=span, height=span),
+                )
+            return (
+                bounds_center,
+                ClusterSize(radius=max(width, height) / 2.0, width=width, height=height),
+            )
+
+        if cluster.shape_kind is ShapeKind.CIRCLE and target_shape is ShapeKind.RECTANGLE:
+            span = current_size.radius * 2.0
+            return current_center, ClusterSize(radius=span / 2.0, width=span, height=span)
+        if cluster.shape_kind is ShapeKind.RECTANGLE and target_shape is ShapeKind.CIRCLE:
+            span = max(current_size.width, current_size.height)
+            return current_center, ClusterSize(radius=span / 2.0, width=span, height=span)
+        return current_center, current_size.copy()
 
     def _apply_selection_shape_change(self, target_shape: ShapeKind) -> None:
         for cluster in self._selected_clusters():
-            cluster.size = self._convert_size(cluster.size, cluster.shape_kind, target_shape)
+            cluster.center, cluster.size = self._convert_cluster_geometry(cluster, target_shape)
             cluster.shape_kind = target_shape
 
     def _apply_selection_radius(self, radius: float) -> None:
@@ -470,11 +699,32 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         for cluster in self._selected_clusters():
             if cluster.shape_kind is ShapeKind.RECTANGLE:
                 cluster.size.width = width
+                cluster.size.radius = max(cluster.size.width, cluster.size.height) / 2.0
 
     def _apply_selection_height(self, height: float) -> None:
         for cluster in self._selected_clusters():
             if cluster.shape_kind is ShapeKind.RECTANGLE:
                 cluster.size.height = height
+                cluster.size.radius = max(cluster.size.width, cluster.size.height) / 2.0
+
+    def _apply_selection_polygon_scale(self, percent: float) -> None:
+        percent = max(percent, self.config.limits.size_min)
+        if percent <= 0.0:
+            return
+
+        for cluster in self._selected_clusters():
+            if cluster.shape_kind is not ShapeKind.POLYGON:
+                continue
+            current_scale = max(cluster.size.polygon_scale, self.config.limits.size_min)
+            factor = percent / current_scale
+            if math.isclose(factor, 1.0, rel_tol=1e-9, abs_tol=1e-9):
+                cluster.size.polygon_scale = percent
+                continue
+            scaled_vertices = [
+                Point(vertex.x * factor, vertex.y * factor)
+                for vertex in cluster.size.vertices_local
+            ]
+            cluster.size = polygon_size_from_local_vertices(scaled_vertices, polygon_scale=percent)
 
     def _on_canvas_state_changed(self, cluster_list_changed: bool) -> None:
         if self.state.distribution_mode is DistributionMode.MANUAL:
@@ -513,6 +763,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
                 self._status_text = self.config.text.ready_status
                 self._status_kind = "neutral"
 
+        self._update_history_buttons()
         self._update_status_label()
         self.canvas.queue_draw()
 
@@ -521,7 +772,14 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         try:
             placement_shape = self.state.active_tool.shape_kind()
             if placement_shape is None:
-                self.placement_info.set_text("Choose Circle or Rectangle from the toolbar to place new clusters.")
+                self.placement_info.set_text("Choose Circle, Rectangle, or Polygon from the toolbar to place new clusters.")
+                self.placement_radius_row.set_visible(False)
+                self.placement_width_row.set_visible(False)
+                self.placement_height_row.set_visible(False)
+            elif placement_shape is ShapeKind.POLYGON:
+                self.placement_info.set_text(
+                    "Click to add polygon vertices. Click the first vertex to finish, and press Escape to cancel the draft."
+                )
                 self.placement_radius_row.set_visible(False)
                 self.placement_width_row.set_visible(False)
                 self.placement_height_row.set_visible(False)
@@ -539,6 +797,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             selection_shape = self._selected_shape_kind()
             self.selection_shape_row.set_visible(bool(selected))
             self.selection_shape_row.set_sensitive(bool(selected))
+            self.selection_polygon_scale_row.set_visible(False)
 
             if not selected:
                 self.selection_info.set_text("No cluster selected.")
@@ -546,6 +805,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
                 self.selection_radius_row.set_visible(False)
                 self.selection_width_row.set_visible(False)
                 self.selection_height_row.set_visible(False)
+                self.selection_polygon_scale_spin.set_value(100.0)
                 self.selection_size_hint.set_visible(False)
                 return
 
@@ -559,6 +819,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
                 self.selection_radius_row.set_visible(False)
                 self.selection_width_row.set_visible(False)
                 self.selection_height_row.set_visible(False)
+                self.selection_polygon_scale_row.set_visible(False)
                 self.selection_size_hint.set_text("Shape changes apply to all selected clusters. Size editing requires the same shape.")
                 self.selection_size_hint.set_visible(True)
                 return
@@ -568,11 +829,23 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self.selection_radius_row.set_visible(selection_shape is ShapeKind.CIRCLE)
             self.selection_width_row.set_visible(selection_shape is ShapeKind.RECTANGLE)
             self.selection_height_row.set_visible(selection_shape is ShapeKind.RECTANGLE)
+            self.selection_polygon_scale_row.set_visible(selection_shape is ShapeKind.POLYGON)
             if reference_size is not None:
                 self.selection_radius_spin.set_value(reference_size.radius)
                 self.selection_width_spin.set_value(reference_size.width)
                 self.selection_height_spin.set_value(reference_size.height)
-            if len(selected) > 1:
+            if selection_shape is ShapeKind.POLYGON:
+                self.selection_polygon_scale_spin.set_value(reference_size.polygon_scale)
+                if len(selected) == 1:
+                    self.selection_size_hint.set_text(
+                        "Drag polygon vertices on the canvas to edit the shape. Scale applies around the polygon center."
+                    )
+                else:
+                    self.selection_size_hint.set_text(
+                        "Scale applies to all selected polygons around their own centers."
+                    )
+                self.selection_size_hint.set_visible(True)
+            elif len(selected) > 1:
                 self.selection_size_hint.set_text("Size changes apply to all selected clusters.")
                 self.selection_size_hint.set_visible(True)
             else:
@@ -586,6 +859,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
 
         for index, cluster in enumerate(self.state.clusters):
             manual_spin = self._make_spin(self.config.limits.total_stars_min, self.config.limits.total_stars_max, 1)
+            self._attach_continuous_history(manual_spin)
             manual_spin.set_value(cluster.manual_star_count)
             manual_spin.connect("value-changed", self._on_manual_count_changed, cluster.cluster_id)
             self.manual_counts_box.append(self._build_row(f"Cluster {index + 1}", manual_spin))
@@ -599,6 +873,18 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     ) -> bool:
         if self._focus_blocks_shortcuts():
             return False
+
+        if state & Gdk.ModifierType.CONTROL_MASK and state & Gdk.ModifierType.SHIFT_MASK and keyval in (Gdk.KEY_z, Gdk.KEY_Z):
+            self._perform_redo()
+            return True
+
+        if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_z, Gdk.KEY_Z):
+            self._perform_undo()
+            return True
+
+        if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_y, Gdk.KEY_Y):
+            self._perform_redo()
+            return True
 
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_a, Gdk.KEY_A):
             self._select_all_clusters()
@@ -617,7 +903,14 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if keyval in (Gdk.KEY_r, Gdk.KEY_R):
             self._set_active_tool(CanvasTool.RECTANGLE)
             return True
+        if keyval in (Gdk.KEY_p, Gdk.KEY_P):
+            self._set_active_tool(CanvasTool.POLYGON)
+            return True
         if keyval == Gdk.KEY_Escape:
+            if self.canvas.cancel_polygon_draft():
+                self._clear_status()
+                self._refresh_ui()
+                return True
             self._clear_selected_clusters()
             return True
         if keyval == Gdk.KEY_Delete:
@@ -638,15 +931,15 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _delete_selected_clusters(self) -> None:
         if not self.state.selected_cluster_ids:
             return
-        self.state.delete_selected_clusters()
-        if self.state.distribution_mode is DistributionMode.MANUAL:
-            self._sync_total_stars_for_manual_mode()
-        self._clear_status()
-        self._refresh_ui(rebuild_manual_rows=True)
+        self._run_immediate_edit(
+            self.state.delete_selected_clusters,
+            rebuild_manual_rows=True,
+        )
 
     def _clear_selected_clusters(self) -> None:
         if not self.state.selected_cluster_ids:
             return
+        self._finalize_history_transaction()
         self.state.clear_selection()
         self._clear_status()
         self._refresh_ui()
@@ -654,6 +947,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _select_all_clusters(self) -> None:
         if not self.state.clusters:
             return
+        self._finalize_history_transaction()
         self.state.selected_cluster_ids = [cluster.cluster_id for cluster in self.state.clusters]
         self._clear_status()
         self._refresh_ui()
@@ -666,6 +960,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_placement_radius_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         value = spin.get_value()
         self.state.placement_circle_size.radius = value
         self.state.placement_circle_size.width = value * 2.0
@@ -676,6 +971,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_placement_width_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self.state.placement_rectangle_size.width = spin.get_value()
         self._clear_status()
         self._refresh_ui()
@@ -683,6 +979,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_placement_height_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self.state.placement_rectangle_size.height = spin.get_value()
         self._clear_status()
         self._refresh_ui()
@@ -693,13 +990,14 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         active_id = combo.get_active_id()
         if not active_id or not self._selected_clusters():
             return
-        self._apply_selection_shape_change(ShapeKind(active_id))
-        self._clear_status()
-        self._refresh_ui()
+        self._run_immediate_edit(
+            lambda: self._apply_selection_shape_change(ShapeKind(active_id)),
+        )
 
     def _on_selection_radius_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self._apply_selection_radius(spin.get_value())
         self._clear_status()
         self._refresh_ui()
@@ -707,6 +1005,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_selection_width_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self._apply_selection_width(spin.get_value())
         self._clear_status()
         self._refresh_ui()
@@ -714,13 +1013,29 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_selection_height_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self._apply_selection_height(spin.get_value())
+        self._clear_status()
+        self._refresh_ui()
+
+    def _on_selection_polygon_scale_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+
+        self._ensure_continuous_history(spin)
+        selection_shape = self._selected_shape_kind()
+        if selection_shape is not ShapeKind.POLYGON or not self._selected_clusters():
+            return
+
+        new_value = max(spin.get_value(), self.config.limits.size_min)
+        self._apply_selection_polygon_scale(new_value)
         self._clear_status()
         self._refresh_ui()
 
     def _on_total_stars_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self.state.total_cluster_stars = spin.get_value_as_int()
         self._clear_status()
         self._refresh_ui()
@@ -731,17 +1046,19 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         active_id = combo.get_active_id()
         if not active_id:
             return
-        self.state.distribution_mode = DistributionMode(active_id)
-        if self.state.distribution_mode is DistributionMode.MANUAL:
-            if sum(cluster.manual_star_count for cluster in self.state.clusters) != self.state.total_cluster_stars:
-                self._apply_even_manual_counts()
-            self._sync_total_stars_for_manual_mode()
-        self._clear_status()
-        self._refresh_ui(rebuild_manual_rows=True)
+        def mutate() -> None:
+            self.state.distribution_mode = DistributionMode(active_id)
+            if self.state.distribution_mode is DistributionMode.MANUAL:
+                if sum(cluster.manual_star_count for cluster in self.state.clusters) != self.state.total_cluster_stars:
+                    self._apply_even_manual_counts()
+                self._sync_total_stars_for_manual_mode()
+
+        self._run_immediate_edit(mutate, rebuild_manual_rows=True)
 
     def _on_deviation_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self.state.deviation_percent = spin.get_value()
         self._clear_status()
         self._refresh_ui()
@@ -749,13 +1066,12 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_parameter_enabled_toggled(self, button: Gtk.CheckButton) -> None:
         if self._syncing_ui:
             return
-        self.state.star_parameter.enabled = button.get_active()
-        self._clear_status()
-        self._refresh_ui()
+        self._run_immediate_edit(lambda: setattr(self.state.star_parameter, "enabled", button.get_active()))
 
     def _on_parameter_name_changed(self, entry: Gtk.Entry) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(entry)
         self.state.star_parameter.name = entry.get_text()
         self._clear_status()
         self._refresh_ui()
@@ -763,6 +1079,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_parameter_min_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self.state.star_parameter.min_value = spin.get_value()
         self._clear_status()
         self._refresh_ui()
@@ -770,6 +1087,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_parameter_max_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self.state.star_parameter.max_value = spin.get_value()
         self._clear_status()
         self._refresh_ui()
@@ -777,6 +1095,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_trash_count_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self.state.trash_star_count = spin.get_value_as_int()
         self._clear_status()
         self._refresh_ui()
@@ -784,6 +1103,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_trash_distance_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:
             return
+        self._ensure_continuous_history(spin)
         self.state.trash_min_distance = spin.get_value()
         self._clear_status()
         self._refresh_ui()
@@ -792,6 +1112,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         cluster = self.state.cluster_by_id(cluster_id)
         if cluster is None:
             return
+        self._ensure_continuous_history(spin)
         cluster.manual_star_count = spin.get_value_as_int()
         self._sync_total_stars_for_manual_mode()
         self._clear_status()
@@ -818,6 +1139,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self._show_error_dialog(message)
 
     def _on_generate_clicked(self, button: Gtk.Button) -> None:
+        self._finalize_history_transaction()
         errors = validate_state(self.state)
         if errors:
             self._set_status(errors[0], "error")
