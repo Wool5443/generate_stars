@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
 import gi
@@ -15,6 +16,12 @@ from .localization import initialize_localizer
 from .ui.window import StarClusterWindow
 
 
+def _resource_root_dir() -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent
+
+
 class StarClusterApplication(Gtk.Application):
     def __init__(self, config: AppConfig, config_issues: list[ConfigIssue]) -> None:
         self.config = config
@@ -28,6 +35,11 @@ class StarClusterApplication(Gtk.Application):
 
         display = Gdk.Display.get_default()
         if display is not None:
+            icon_search_path = _resource_root_dir() / "share" / "icons"
+            if icon_search_path.exists():
+                Gtk.IconTheme.get_for_display(display).add_search_path(str(icon_search_path))
+            Gtk.Window.set_default_icon_name(self.config.app.application_id)
+
             provider = Gtk.CssProvider()
             provider.load_from_data(self.config.app.css)
             Gtk.StyleContext.add_provider_for_display(
@@ -40,6 +52,7 @@ class StarClusterApplication(Gtk.Application):
         if window is None:
             controller = EditorController(self.config)
             window = StarClusterWindow(self, controller, self.config, self._config_issues)
+        window.set_icon_name(self.config.app.application_id)
         window.present()
         if isinstance(window, StarClusterWindow):
             window.focus_canvas()

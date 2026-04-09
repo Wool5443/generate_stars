@@ -5,13 +5,20 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parent
 DEFAULT_CONFIG_DATA = [(str(PROJECT_ROOT / "generate_stars" / "default_config.toml"), "generate_stars")]
+ICON_DATA = [
+    (
+        str(PROJECT_ROOT / "share" / "icons" / "hicolor" / "1024x1024" / "apps" / "com.twenty.generate-stars.png"),
+        "share/icons/hicolor/1024x1024/apps",
+    )
+]
+WINDOWS_ICON = str(PROJECT_ROOT / "packaging" / "generate-stars.ico")
 
 
 a = Analysis(
     [str(PROJECT_ROOT / "generate_stars_launcher.py")],
     pathex=[str(PROJECT_ROOT)],
     binaries=[],
-    datas=DEFAULT_CONFIG_DATA,
+    datas=DEFAULT_CONFIG_DATA + ICON_DATA,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={
@@ -51,6 +58,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=WINDOWS_ICON,
 )
 coll = COLLECT(
     exe,
