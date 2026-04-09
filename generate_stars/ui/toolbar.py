@@ -13,9 +13,11 @@ from ..models import CanvasTool
 
 class CanvasToolbarView(Gtk.Box):
     def __init__(self, config: AppConfig) -> None:
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=config.ui.row_spacing)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=config.ui.panel_spacing)
         self.add_css_class("panel")
         self._syncing = False
+
+        button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=config.ui.row_spacing)
 
         self.undo_button = Gtk.Button(label="Undo")
         self.redo_button = Gtk.Button(label="Redo")
@@ -29,12 +31,18 @@ class CanvasToolbarView(Gtk.Box):
         self.rectangle_tool_button.set_group(self.select_tool_button)
         self.polygon_tool_button.set_group(self.select_tool_button)
 
-        self.append(self.undo_button)
-        self.append(self.redo_button)
-        self.append(self.select_tool_button)
-        self.append(self.circle_tool_button)
-        self.append(self.rectangle_tool_button)
-        self.append(self.polygon_tool_button)
+        button_row.append(self.undo_button)
+        button_row.append(self.redo_button)
+        button_row.append(self.select_tool_button)
+        button_row.append(self.circle_tool_button)
+        button_row.append(self.rectangle_tool_button)
+        button_row.append(self.polygon_tool_button)
+        self.append(button_row)
+
+        self.description_label = Gtk.Label(xalign=0.0)
+        self.description_label.set_wrap(True)
+        self.description_label.add_css_class("dim-label")
+        self.append(self.description_label)
 
     def apply(self, view_model: ToolbarViewModel) -> None:
         self._syncing = True
@@ -45,6 +53,7 @@ class CanvasToolbarView(Gtk.Box):
             self.circle_tool_button.set_active(view_model.active_tool is CanvasTool.CIRCLE)
             self.rectangle_tool_button.set_active(view_model.active_tool is CanvasTool.RECTANGLE)
             self.polygon_tool_button.set_active(view_model.active_tool is CanvasTool.POLYGON)
+            self.description_label.set_text(view_model.active_tool_description)
         finally:
             self._syncing = False
 

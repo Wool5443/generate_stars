@@ -20,6 +20,12 @@ a = Analysis(
                 "Gtk": "4.0",
                 "Gdk": "4.0",
             },
+            "icons": [
+                "Adwaita",
+            ],
+            "themes": [
+                "Adwaita",
+            ],
         },
     },
     runtime_hooks=[],

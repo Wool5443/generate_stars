@@ -633,6 +633,7 @@ class EditorController:
                 active_tool=self.active_tool,
                 can_undo=self.can_undo,
                 can_redo=self.can_redo,
+                active_tool_description=self._tool_description(self.active_tool),
             ),
             cluster_panel=self._build_cluster_panel_view_model(),
             distribution_panel=self._build_distribution_panel_view_model(),
@@ -650,3 +651,12 @@ class EditorController:
             status=status,
             generate_enabled=generate_enabled,
         )
+
+    def _tool_description(self, tool: CanvasTool) -> str:
+        if tool is CanvasTool.SELECT:
+            return self.config.text.select_tool_description
+        if tool is CanvasTool.CIRCLE:
+            return self.config.text.circle_tool_description
+        if tool is CanvasTool.RECTANGLE:
+            return self.config.text.rectangle_tool_description
+        return self.config.text.polygon_tool_description

@@ -78,6 +78,10 @@ class TextConfig:
     reset_positions_status: str
     save_dialog_title: str
     shape_interaction_hint: str
+    select_tool_description: str
+    circle_tool_description: str
+    rectangle_tool_description: str
+    polygon_tool_description: str
     trash_note: str
     manual_counts_note: str
 
@@ -543,6 +547,34 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             "shape_interaction_hint",
             issues,
             "text.shape_interaction_hint",
+        ),
+        select_tool_description=_string_value(
+            text_values,
+            text_defaults,
+            "select_tool_description",
+            issues,
+            "text.select_tool_description",
+        ),
+        circle_tool_description=_string_value(
+            text_values,
+            text_defaults,
+            "circle_tool_description",
+            issues,
+            "text.circle_tool_description",
+        ),
+        rectangle_tool_description=_string_value(
+            text_values,
+            text_defaults,
+            "rectangle_tool_description",
+            issues,
+            "text.rectangle_tool_description",
+        ),
+        polygon_tool_description=_string_value(
+            text_values,
+            text_defaults,
+            "polygon_tool_description",
+            issues,
+            "text.polygon_tool_description",
         ),
         trash_note=_string_value(text_values, text_defaults, "trash_note", issues, "text.trash_note"),
         manual_counts_note=_string_value(

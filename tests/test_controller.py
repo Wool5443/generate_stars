@@ -44,6 +44,10 @@ class EditorControllerTests(unittest.TestCase):
 
         self.assertFalse(view_model.cluster_panel.selection.show_shape_selector)
         self.assertEqual(view_model.cluster_panel.selection.info_text, "No cluster selected.")
+        self.assertEqual(
+            view_model.toolbar.active_tool_description,
+            self.controller.config.text.select_tool_description,
+        )
 
     def test_delete_selected_clusters_syncs_manual_total(self) -> None:
         self.controller.state = AppState(
