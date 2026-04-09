@@ -5,7 +5,7 @@ import locale
 import os
 
 from .config import AppConfig
-from .models import DistributionMode, ShapeKind
+from .models import DistributionMode, FunctionOrientation, ShapeKind
 
 
 ENGLISH_DEFAULT_TEXTS = {
@@ -14,11 +14,12 @@ ENGLISH_DEFAULT_TEXTS = {
     "text.ready_status": "Ready to generate.",
     "text.reset_positions_status": "Cluster positions reset.",
     "text.save_dialog_title": "Save Star Coordinates",
-    "text.shape_interaction_hint": "Use the toolbar or V/C/R/P to switch tools. Click to place circles and rectangles. Polygon mode adds vertices with each click; click the first vertex to finish and press Escape to cancel the draft. Drag empty space to box-select, Ctrl+click toggles selection, Delete removes the current selection, and Space+LMB pans.",
+    "text.shape_interaction_hint": "Use the toolbar or V/C/R/P/F to switch tools. Click to place circles, rectangles, and function clusters. Polygon mode adds vertices with each click; click the first vertex to finish and press Escape to cancel the draft. Drag empty space to box-select, Ctrl+click toggles selection, Delete removes the current selection, and Space+LMB pans.",
     "text.select_tool_description": "Select tool: click a cluster to select it, Ctrl+click to toggle it, drag empty space to box-select, drag selected clusters to move them, and use Space+LMB to pan.",
     "text.circle_tool_description": "Circle tool: click on the canvas to place a circle cluster using the current placement radius. Switch back to Select to move or edit placed circles.",
     "text.rectangle_tool_description": "Rectangle tool: click on the canvas to place a rectangle cluster using the current placement width and height. Switch back to Select to move or edit placed rectangles.",
     "text.polygon_tool_description": "Polygon tool: click to add polygon vertices, click the first vertex to finish the polygon, and press Escape to cancel the draft. Switch to Select to move the polygon or drag its vertices.",
+    "text.function_tool_description": "Function tool: click on the canvas to place a function-shaped cluster using the current formula, range, orientation, and thickness. Switch back to Select to move or edit placed function clusters.",
     "text.trash_note": "Trash stars are sampled from an automatic bounding box around all clusters and kept outside each cluster by the requested edge distance.",
     "text.manual_counts_note": "Manual cluster star counts update the total automatically.",
 }
@@ -34,6 +35,7 @@ TRANSLATIONS = {
         "ui.tool.circle": "Circle",
         "ui.tool.rectangle": "Rectangle",
         "ui.tool.polygon": "Polygon",
+        "ui.tool.function": "Function",
         "ui.generate": "Generate",
         "ui.panel.clusters": "Clusters",
         "ui.panel.stars": "Stars",
@@ -48,6 +50,11 @@ TRANSLATIONS = {
         "ui.label.height": "Height",
         "ui.label.shape": "Shape",
         "ui.label.scale": "Scale %",
+        "ui.label.orientation": "Orientation",
+        "ui.label.expression": "Expression",
+        "ui.label.range_start": "Range start",
+        "ui.label.range_end": "Range end",
+        "ui.label.thickness": "Thickness",
         "ui.label.total_cluster_stars": "Total cluster stars",
         "ui.label.distribution": "Distribution",
         "ui.label.deviation_percent": "Deviation %",
@@ -56,10 +63,13 @@ TRANSLATIONS = {
         "ui.option.equal": "Equal",
         "ui.option.deviation": "Deviation",
         "ui.option.manual": "Manual",
+        "ui.option.y_of_x": "y = f(x)",
+        "ui.option.x_of_y": "x = f(y)",
         "shape.circle": "Circle",
         "shape.rectangle": "Rectangle",
         "shape.polygon": "Polygon",
-        "controller.placement.none": "Choose Circle, Rectangle, or Polygon from the toolbar to place new clusters.",
+        "shape.function": "Function",
+        "controller.placement.none": "Choose Circle, Rectangle, Polygon, or Function from the toolbar to place new clusters.",
         "controller.placement.polygon": "Click to add polygon vertices. Click the first vertex to finish, and press Escape to cancel the draft.",
         "controller.placement.shape_defaults": "New {shape_name} clusters use these placement defaults.",
         "controller.selection.none": "No cluster selected.",
@@ -68,6 +78,9 @@ TRANSLATIONS = {
         "controller.selection.mixed_shape_hint": "Shape changes apply to all selected clusters. Size editing requires the same shape.",
         "controller.selection.polygon_single_hint": "Drag polygon vertices on the canvas to edit the shape. Scale applies around the polygon center.",
         "controller.selection.polygon_multi_hint": "Scale applies to all selected polygons around their own centers.",
+        "controller.selection.function_single_hint": "Edit the function formula, orientation, range, and thickness here. Function clusters cannot be converted to other shapes.",
+        "controller.selection.function_multi_hint": "Shared orientation, range, and thickness changes apply to all selected function clusters. Formula editing is available only for a single selection.",
+        "controller.selection.function_mixed_hint": "Function clusters cannot be shape-converted. Shape-specific editing is hidden for mixed selections that include function clusters.",
         "controller.selection.multi_size_hint": "Size changes apply to all selected clusters.",
         "controller.manual_cluster_label": "Cluster {index}",
         "status.copied_clusters": "Copied {count} clusters.",
@@ -85,10 +98,14 @@ TRANSLATIONS = {
         "canvas.hover.width": "Width: {value}",
         "canvas.hover.height": "Height: {value}",
         "canvas.hover.vertices": "Vertices: {count}",
+        "canvas.hover.orientation": "Orientation: {value}",
+        "canvas.hover.range": "Range: {start} .. {end}",
+        "canvas.hover.thickness": "Thickness: {value}",
         "canvas.hover.stars": "Stars: {count}",
         "canvas.hover.randomized": "Stars: randomized",
         "error.circle_placement": "Circle placement",
         "error.rectangle_placement": "Rectangle placement",
+        "error.function_placement": "Function placement",
         "error.cluster": "Cluster {index}",
         "error.radius_positive": "{label} radius must be greater than zero.",
         "error.width_positive": "{label} width must be greater than zero.",
@@ -107,6 +124,10 @@ TRANSLATIONS = {
         "error.parameter_export_requires_value": "Parameter export requires a value for every star.",
         "error.polygon_vertex_count": "Polygon must have at least 3 distinct vertices.",
         "error.polygon_simple": "Polygon must be simple and non-self-intersecting.",
+        "error.function_expression_invalid": "Function expression is invalid.",
+        "error.function_range_invalid": "Function range end must be greater than range start.",
+        "error.function_thickness_positive": "Function thickness must be greater than zero.",
+        "error.function_geometry_invalid": "Function band geometry is invalid. Reduce the thickness or change the range/formula.",
     },
     "ru": {
         "app.title": "Генератор звездных кластеров",
@@ -114,11 +135,12 @@ TRANSLATIONS = {
         "text.ready_status": "Готово к генерации.",
         "text.reset_positions_status": "Позиции кластеров сброшены.",
         "text.save_dialog_title": "Сохранить координаты звезд",
-        "text.shape_interaction_hint": "Используйте панель инструментов или клавиши V/C/R/P для выбора инструмента. Круги и прямоугольники ставятся щелчком. В режиме полигона каждый щелчок добавляет вершину; щелкните по первой вершине, чтобы завершить полигон, и нажмите Escape для отмены. Протягивание по пустому месту создает рамку выделения, Ctrl+щелчок переключает выделение, Delete удаляет текущее выделение, а Space+ЛКМ выполняет панорамирование.",
+        "text.shape_interaction_hint": "Используйте панель инструментов или клавиши V/C/R/P/F для выбора инструмента. Круги, прямоугольники и функциональные кластеры ставятся щелчком. В режиме полигона каждый щелчок добавляет вершину; щелкните по первой вершине, чтобы завершить полигон, и нажмите Escape для отмены. Протягивание по пустому месту создает рамку выделения, Ctrl+щелчок переключает выделение, Delete удаляет текущее выделение, а Space+ЛКМ выполняет панорамирование.",
         "text.select_tool_description": "Инструмент выделения: щелкните по кластеру, чтобы выделить его, Ctrl+щелчок переключает выделение, протягивание по пустому месту выделяет рамкой, перетаскивание выделенных кластеров перемещает их, а Space+ЛКМ панорамирует холст.",
         "text.circle_tool_description": "Инструмент круга: щелкните по холсту, чтобы поставить круглый кластер с текущим радиусом размещения. Вернитесь к выделению, чтобы перемещать или редактировать созданные круги.",
         "text.rectangle_tool_description": "Инструмент прямоугольника: щелкните по холсту, чтобы поставить прямоугольный кластер с текущими шириной и высотой размещения. Вернитесь к выделению, чтобы перемещать или редактировать созданные прямоугольники.",
         "text.polygon_tool_description": "Инструмент полигона: щелчки добавляют вершины, щелчок по первой вершине завершает полигон, а Escape отменяет черновик. Переключитесь на выделение, чтобы перемещать полигон или тянуть его вершины.",
+        "text.function_tool_description": "Инструмент функции: щелкните по холсту, чтобы поставить кластер в форме функции с текущей формулой, диапазоном, ориентацией и толщиной. Вернитесь к выделению, чтобы перемещать или редактировать созданные функциональные кластеры.",
         "text.trash_note": "Мусорные звезды выбираются из автоматической ограничивающей области вокруг всех кластеров и остаются вне каждого кластера на заданном расстоянии от края.",
         "text.manual_counts_note": "Ручные значения звезд по кластерам автоматически обновляют общий итог.",
         "ui.toolbar.undo": "Отменить",
@@ -128,6 +150,7 @@ TRANSLATIONS = {
         "ui.tool.circle": "Круг",
         "ui.tool.rectangle": "Прямоугольник",
         "ui.tool.polygon": "Полигон",
+        "ui.tool.function": "Функция",
         "ui.generate": "Сгенерировать",
         "ui.panel.clusters": "Кластеры",
         "ui.panel.stars": "Звезды",
@@ -142,6 +165,11 @@ TRANSLATIONS = {
         "ui.label.height": "Высота",
         "ui.label.shape": "Форма",
         "ui.label.scale": "Масштаб %",
+        "ui.label.orientation": "Ориентация",
+        "ui.label.expression": "Выражение",
+        "ui.label.range_start": "Начало диапазона",
+        "ui.label.range_end": "Конец диапазона",
+        "ui.label.thickness": "Толщина",
         "ui.label.total_cluster_stars": "Всего звезд в кластерах",
         "ui.label.distribution": "Распределение",
         "ui.label.deviation_percent": "Отклонение %",
@@ -150,10 +178,13 @@ TRANSLATIONS = {
         "ui.option.equal": "Равномерно",
         "ui.option.deviation": "С отклонением",
         "ui.option.manual": "Вручную",
+        "ui.option.y_of_x": "y = f(x)",
+        "ui.option.x_of_y": "x = f(y)",
         "shape.circle": "Круг",
         "shape.rectangle": "Прямоугольник",
         "shape.polygon": "Полигон",
-        "controller.placement.none": "Выберите Круг, Прямоугольник или Полигон на панели инструментов, чтобы размещать новые кластеры.",
+        "shape.function": "Функция",
+        "controller.placement.none": "Выберите Круг, Прямоугольник, Полигон или Функцию на панели инструментов, чтобы размещать новые кластеры.",
         "controller.placement.polygon": "Щелчки добавляют вершины полигона. Щелкните по первой вершине, чтобы завершить фигуру, и нажмите Escape для отмены черновика.",
         "controller.placement.shape_defaults": "Новые кластеры формы «{shape_name}» используют эти параметры размещения.",
         "controller.selection.none": "Ни один кластер не выбран.",
@@ -162,6 +193,9 @@ TRANSLATIONS = {
         "controller.selection.mixed_shape_hint": "Изменение формы применяется ко всем выделенным кластерам. Изменение размеров доступно только при одинаковой форме.",
         "controller.selection.polygon_single_hint": "Перетаскивайте вершины полигона на холсте, чтобы менять форму. Масштаб применяется относительно центра полигона.",
         "controller.selection.polygon_multi_hint": "Масштаб применяется ко всем выбранным полигонам относительно их собственных центров.",
+        "controller.selection.function_single_hint": "Здесь можно менять формулу, ориентацию, диапазон и толщину функции. Функциональные кластеры нельзя преобразовать в другие формы.",
+        "controller.selection.function_multi_hint": "Общие изменения ориентации, диапазона и толщины применяются ко всем выбранным функциональным кластерам. Формулу можно редактировать только при выборе одного кластера.",
+        "controller.selection.function_mixed_hint": "Функциональные кластеры нельзя преобразовывать по форме. Для смешанного выделения с функциями специальные настройки скрыты.",
         "controller.selection.multi_size_hint": "Изменение размера применяется ко всем выделенным кластерам.",
         "controller.manual_cluster_label": "Кластер {index}",
         "status.copied_clusters": "Скопировано кластеров: {count}.",
@@ -179,10 +213,14 @@ TRANSLATIONS = {
         "canvas.hover.width": "Ширина: {value}",
         "canvas.hover.height": "Высота: {value}",
         "canvas.hover.vertices": "Вершины: {count}",
+        "canvas.hover.orientation": "Ориентация: {value}",
+        "canvas.hover.range": "Диапазон: {start} .. {end}",
+        "canvas.hover.thickness": "Толщина: {value}",
         "canvas.hover.stars": "Звезд: {count}",
         "canvas.hover.randomized": "Звезды: случайно",
         "error.circle_placement": "Размещение круга",
         "error.rectangle_placement": "Размещение прямоугольника",
+        "error.function_placement": "Размещение функции",
         "error.cluster": "Кластер {index}",
         "error.radius_positive": "Радиус для «{label}» должен быть больше нуля.",
         "error.width_positive": "Ширина для «{label}» должна быть больше нуля.",
@@ -201,6 +239,10 @@ TRANSLATIONS = {
         "error.parameter_export_requires_value": "Для экспорта параметра значение должно быть задано для каждой звезды.",
         "error.polygon_vertex_count": "Полигон должен содержать не менее 3 различных вершин.",
         "error.polygon_simple": "Полигон должен быть простым и не самопересекающимся.",
+        "error.function_expression_invalid": "Выражение функции некорректно.",
+        "error.function_range_invalid": "Конец диапазона функции должен быть больше начала.",
+        "error.function_thickness_positive": "Толщина функции должна быть больше нуля.",
+        "error.function_geometry_invalid": "Геометрия полосы функции некорректна. Уменьшите толщину или измените диапазон или формулу.",
     },
 }
 
@@ -222,6 +264,9 @@ class Localizer:
 
     def distribution_name(self, distribution_mode: DistributionMode) -> str:
         return self.text(f"ui.option.{distribution_mode.value}")
+
+    def function_orientation_name(self, orientation: FunctionOrientation) -> str:
+        return self.text(f"ui.option.{orientation.value}")
 
     def localize_config(self, config: AppConfig) -> AppConfig:
         app = replace(
@@ -245,6 +290,7 @@ class Localizer:
             circle_tool_description=self._localize_if_default("text.circle_tool_description", config.text.circle_tool_description),
             rectangle_tool_description=self._localize_if_default("text.rectangle_tool_description", config.text.rectangle_tool_description),
             polygon_tool_description=self._localize_if_default("text.polygon_tool_description", config.text.polygon_tool_description),
+            function_tool_description=self._localize_if_default("text.function_tool_description", config.text.function_tool_description),
             trash_note=self._localize_if_default("text.trash_note", config.text.trash_note),
             manual_counts_note=self._localize_if_default("text.manual_counts_note", config.text.manual_counts_note),
         )

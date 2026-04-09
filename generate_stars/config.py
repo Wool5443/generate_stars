@@ -42,6 +42,11 @@ class DefaultsConfig:
     cluster_radius: float
     cluster_width: float
     cluster_height: float
+    function_expression: str
+    function_orientation: str
+    function_range_start: float
+    function_range_end: float
+    function_thickness: float
     cluster_count: int
     total_cluster_stars: int
     deviation_percent: float
@@ -61,6 +66,10 @@ class LimitsConfig:
     cluster_count_max: int
     size_min: float
     size_max: float
+    function_range_min: float
+    function_range_max: float
+    function_thickness_min: float
+    function_thickness_max: float
     total_stars_min: int
     total_stars_max: int
     deviation_percent_min: float
@@ -83,6 +92,7 @@ class TextConfig:
     circle_tool_description: str
     rectangle_tool_description: str
     polygon_tool_description: str
+    function_tool_description: str
     trash_note: str
     manual_counts_note: str
 
@@ -149,6 +159,7 @@ class GenerationConfig:
     trash_bounds_padding_extra: float
     trash_placement_attempts_min: int
     trash_placement_attempts_per_star: int
+    function_sample_count: int
     export_coordinate_precision: int
 
 
@@ -353,6 +364,43 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             0.0,
             exclusive_min=True,
         ),
+        function_expression=_string_value(
+            default_values,
+            default_defaults,
+            "function_expression",
+            issues,
+            "defaults.function_expression",
+        ),
+        function_orientation=_string_value(
+            default_values,
+            default_defaults,
+            "function_orientation",
+            issues,
+            "defaults.function_orientation",
+        ),
+        function_range_start=_float_value(
+            default_values,
+            default_defaults,
+            "function_range_start",
+            issues,
+            "defaults.function_range_start",
+        ),
+        function_range_end=_float_value(
+            default_values,
+            default_defaults,
+            "function_range_end",
+            issues,
+            "defaults.function_range_end",
+        ),
+        function_thickness=_float_value(
+            default_values,
+            default_defaults,
+            "function_thickness",
+            issues,
+            "defaults.function_thickness",
+            0.0,
+            exclusive_min=True,
+        ),
         cluster_count=_int_value(default_values, default_defaults, "cluster_count", issues, "defaults.cluster_count", 0),
         total_cluster_stars=_int_value(
             default_values,
@@ -443,6 +491,29 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             star_parameter_min_value=float(default_defaults["star_parameter_min_value"]),
             star_parameter_max_value=float(default_defaults["star_parameter_max_value"]),
         )
+    if defaults_config.function_orientation not in {"y_of_x", "x_of_y"}:
+        issues.append(
+            ConfigIssue(
+                "defaults.function_orientation",
+                "Expected 'y_of_x' or 'x_of_y'.",
+            )
+        )
+        defaults_config = replace(
+            defaults_config,
+            function_orientation=str(default_defaults["function_orientation"]),
+        )
+    if defaults_config.function_range_end <= defaults_config.function_range_start:
+        issues.append(
+            ConfigIssue(
+                "defaults.function_range_end",
+                "Must be greater than defaults.function_range_start.",
+            )
+        )
+        defaults_config = replace(
+            defaults_config,
+            function_range_start=float(default_defaults["function_range_start"]),
+            function_range_end=float(default_defaults["function_range_end"]),
+        )
 
     limit_values = values["limits"]
     limit_defaults = defaults["limits"]
@@ -465,6 +536,38 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
         ),
         size_min=_float_value(limit_values, limit_defaults, "size_min", issues, "limits.size_min", 0.0, exclusive_min=True),
         size_max=_float_value(limit_values, limit_defaults, "size_max", issues, "limits.size_max", 0.0, exclusive_min=True),
+        function_range_min=_float_value(
+            limit_values,
+            limit_defaults,
+            "function_range_min",
+            issues,
+            "limits.function_range_min",
+        ),
+        function_range_max=_float_value(
+            limit_values,
+            limit_defaults,
+            "function_range_max",
+            issues,
+            "limits.function_range_max",
+        ),
+        function_thickness_min=_float_value(
+            limit_values,
+            limit_defaults,
+            "function_thickness_min",
+            issues,
+            "limits.function_thickness_min",
+            0.0,
+            exclusive_min=True,
+        ),
+        function_thickness_max=_float_value(
+            limit_values,
+            limit_defaults,
+            "function_thickness_max",
+            issues,
+            "limits.function_thickness_max",
+            0.0,
+            exclusive_min=True,
+        ),
         total_stars_min=_int_value(limit_values, limit_defaults, "total_stars_min", issues, "limits.total_stars_min", 0),
         total_stars_max=_int_value(limit_values, limit_defaults, "total_stars_max", issues, "limits.total_stars_max", 0),
         deviation_percent_min=_float_value(
@@ -584,6 +687,13 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             "polygon_tool_description",
             issues,
             "text.polygon_tool_description",
+        ),
+        function_tool_description=_string_value(
+            text_values,
+            text_defaults,
+            "function_tool_description",
+            issues,
+            "text.function_tool_description",
         ),
         trash_note=_string_value(text_values, text_defaults, "trash_note", issues, "text.trash_note"),
         manual_counts_note=_string_value(
@@ -940,6 +1050,14 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             "generation.trash_placement_attempts_per_star",
             1,
         ),
+        function_sample_count=_int_value(
+            generation_values,
+            generation_defaults,
+            "function_sample_count",
+            issues,
+            "generation.function_sample_count",
+            8,
+        ),
         export_coordinate_precision=_int_value(
             generation_values,
             generation_defaults,
@@ -968,6 +1086,8 @@ def _validate_limits(limits: LimitsConfig, defaults: dict[str, Any], issues: lis
     comparisons = (
         ("cluster_count_min", "cluster_count_max"),
         ("size_min", "size_max"),
+        ("function_range_min", "function_range_max"),
+        ("function_thickness_min", "function_thickness_max"),
         ("total_stars_min", "total_stars_max"),
         ("deviation_percent_min", "deviation_percent_max"),
         ("star_parameter_value_min", "star_parameter_value_max"),

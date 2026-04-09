@@ -3,15 +3,7 @@ from __future__ import annotations
 import unittest
 
 from generate_stars.history import HistoryManager
-from generate_stars.models import (
-    AppState,
-    ClusterInstance,
-    ClusterSize,
-    DistributionMode,
-    Point,
-    ShapeKind,
-    StarParameterConfig,
-)
+from generate_stars.models import AppState, ClusterInstance, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterConfig
 
 
 def make_cluster(
@@ -74,6 +66,11 @@ class HistoryTests(unittest.TestCase):
         state.placement_circle_size.radius = 18.0
         state.placement_rectangle_size.width = 30.0
         state.placement_rectangle_size.height = 22.0
+        state.placement_function_size.function_expression = "x"
+        state.placement_function_size.function_orientation = FunctionOrientation.X_OF_Y
+        state.placement_function_size.function_range_start = -6.0
+        state.placement_function_size.function_range_end = 4.0
+        state.placement_function_size.function_thickness = 3.0
         snapshot = state.to_editable_snapshot()
 
         state.clusters[0].center.x = 99.0
@@ -83,6 +80,7 @@ class HistoryTests(unittest.TestCase):
         state.total_cluster_stars = 999
         state.trash_star_count = 111
         state.star_parameter.name = "Changed"
+        state.placement_function_size.function_expression = "Changed"
 
         state.apply_editable_snapshot(snapshot)
 
@@ -93,6 +91,8 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(state.total_cluster_stars, 12)
         self.assertEqual(state.trash_star_count, 10)
         self.assertEqual(state.star_parameter.name, "Mass")
+        self.assertEqual(state.placement_function_size.function_expression, "x")
+        self.assertEqual(state.placement_function_size.function_orientation, FunctionOrientation.X_OF_Y)
 
     def test_history_manager_undo_redo_round_trip(self) -> None:
         state = AppState(

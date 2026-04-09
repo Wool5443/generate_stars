@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import random
 import unittest
+from unittest.mock import patch
 
 from generate_stars.generator import (
     allocate_cluster_counts,
@@ -19,12 +20,13 @@ from generate_stars.models import (
     ClusterInstance,
     ClusterSize,
     DistributionMode,
+    FunctionOrientation,
     Point,
     ShapeKind,
     StarParameterConfig,
     StarRecord,
 )
-from generate_stars.shapes import get_shape
+from generate_stars.shapes import function_size_from_parameters, get_shape
 
 
 def make_cluster(
@@ -36,18 +38,33 @@ def make_cluster(
     width: float = 10.0,
     height: float = 10.0,
     vertices_local: list[Point] | None = None,
+    function_expression: str = "0",
+    function_orientation: FunctionOrientation = FunctionOrientation.Y_OF_X,
+    function_range_start: float = -10.0,
+    function_range_end: float = 10.0,
+    function_thickness: float = 4.0,
     manual_star_count: int = 0,
 ) -> ClusterInstance:
-    return ClusterInstance(
-        cluster_id=cluster_id,
-        shape_kind=shape_kind,
-        center=center,
-        size=ClusterSize(
+    if shape_kind is ShapeKind.FUNCTION:
+        size = function_size_from_parameters(
+            function_expression,
+            function_orientation,
+            function_range_start,
+            function_range_end,
+            function_thickness,
+        )
+    else:
+        size = ClusterSize(
             radius=radius,
             width=width,
             height=height,
             vertices_local=[Point(vertex.x, vertex.y) for vertex in vertices_local or []],
-        ),
+        )
+    return ClusterInstance(
+        cluster_id=cluster_id,
+        shape_kind=shape_kind,
+        center=center,
+        size=size,
         manual_star_count=manual_star_count,
     )
 
@@ -146,6 +163,41 @@ class GeneratorTests(unittest.TestCase):
             point = polygon.sample_point(center, size, rng)
             self.assertLessEqual(polygon.edge_distance(point, center, size), 1e-9)
 
+    def test_function_sampling_stays_inside_shape(self) -> None:
+        rng = random.Random(21)
+        function_shape = get_shape(ShapeKind.FUNCTION)
+        center = Point(-12.0, 8.0)
+        size = function_size_from_parameters(
+            "0.2 * x^2",
+            FunctionOrientation.Y_OF_X,
+            -6.0,
+            6.0,
+            2.5,
+        )
+        for _ in range(200):
+            point = function_shape.sample_point(center, size, rng)
+            self.assertLessEqual(function_shape.edge_distance(point, center, size), 1e-9)
+
+    def test_function_sampling_uses_cached_vertices(self) -> None:
+        rng = random.Random(22)
+        function_shape = get_shape(ShapeKind.FUNCTION)
+        center = Point(0.0, 0.0)
+        size = function_size_from_parameters(
+            "0.5 * x",
+            FunctionOrientation.Y_OF_X,
+            -10.0,
+            10.0,
+            3.0,
+        )
+
+        with patch("generate_stars.shapes.build_function_band_local_vertices", side_effect=AssertionError("rebuild")):
+            point = function_shape.sample_point(center, size, rng)
+            bounds = function_shape.bounding_box(center, size)
+
+        self.assertLessEqual(function_shape.edge_distance(point, center, size), 1e-9)
+        self.assertLess(bounds.min_x, bounds.max_x)
+        self.assertLess(bounds.min_y, bounds.max_y)
+
     def test_trash_points_respect_edge_distance(self) -> None:
         rng = random.Random(19)
         cluster = ClusterConfig(
@@ -188,6 +240,30 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(len(points), 40)
         for point in points:
             self.assertGreaterEqual(polygon.edge_distance(point, cluster.center, cluster.size), 12.0)
+
+    def test_trash_points_respect_function_edge_distance(self) -> None:
+        rng = random.Random(22)
+        cluster = ClusterConfig(
+            shape_kind=ShapeKind.FUNCTION,
+            center=Point(0.0, 0.0),
+            size=function_size_from_parameters(
+                "0.5 * x",
+                FunctionOrientation.Y_OF_X,
+                -10.0,
+                10.0,
+                3.0,
+            ),
+        )
+        function_shape = get_shape(ShapeKind.FUNCTION)
+        points = generate_trash_points(
+            cluster_configs=[cluster],
+            count=40,
+            min_edge_distance=6.0,
+            rng=rng,
+        )
+        self.assertEqual(len(points), 40)
+        for point in points:
+            self.assertGreaterEqual(function_shape.edge_distance(point, cluster.center, cluster.size), 6.0)
 
     def test_export_format_uses_commas(self) -> None:
         payload = format_points_for_export([Point(1.25, -3.5), Point(0.0, 2.125)], precision=3)
@@ -283,6 +359,28 @@ class GeneratorTests(unittest.TestCase):
         )
         self.assertTrue(
             any("Polygon must be simple and non-self-intersecting." in error for error in validate_state(state))
+        )
+
+    def test_validate_state_rejects_invalid_function_range(self) -> None:
+        state = AppState(
+            total_cluster_stars=5,
+            clusters=[
+                ClusterInstance(
+                    cluster_id=1,
+                    shape_kind=ShapeKind.FUNCTION,
+                    center=Point(0.0, 0.0),
+                    size=ClusterSize(
+                        function_expression="x",
+                        function_orientation=FunctionOrientation.Y_OF_X,
+                        function_range_start=5.0,
+                        function_range_end=-5.0,
+                        function_thickness=2.0,
+                    ),
+                )
+            ],
+        )
+        self.assertTrue(
+            any("Function range end must be greater than range start." in error for error in validate_state(state))
         )
 
     def test_validate_state_requires_cluster_for_cluster_stars(self) -> None:

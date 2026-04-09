@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import AppState, ClusterInstance, ClusterSize, DistributionMode, Point, ShapeKind, StarParameterConfig
+from .models import AppState, ClusterInstance, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +25,11 @@ class ClusterSizeSnapshot:
     height: float
     polygon_scale: float
     vertices_local: tuple[PointSnapshot, ...]
+    function_expression: str
+    function_orientation: FunctionOrientation
+    function_range_start: float
+    function_range_end: float
+    function_thickness: float
 
     @classmethod
     def from_model(cls, size: ClusterSize) -> "ClusterSizeSnapshot":
@@ -34,6 +39,11 @@ class ClusterSizeSnapshot:
             height=size.height,
             polygon_scale=size.polygon_scale,
             vertices_local=tuple(PointSnapshot.from_model(vertex) for vertex in size.vertices_local),
+            function_expression=size.function_expression,
+            function_orientation=size.function_orientation,
+            function_range_start=size.function_range_start,
+            function_range_end=size.function_range_end,
+            function_thickness=size.function_thickness,
         )
 
     def to_model(self) -> ClusterSize:
@@ -43,6 +53,11 @@ class ClusterSizeSnapshot:
             height=self.height,
             polygon_scale=self.polygon_scale,
             vertices_local=[vertex.to_model() for vertex in self.vertices_local],
+            function_expression=self.function_expression,
+            function_orientation=self.function_orientation,
+            function_range_start=self.function_range_start,
+            function_range_end=self.function_range_end,
+            function_thickness=self.function_thickness,
         )
 
 
@@ -103,6 +118,7 @@ class ClusterSnapshot:
 class EditableStateSnapshot:
     placement_circle_size: ClusterSizeSnapshot
     placement_rectangle_size: ClusterSizeSnapshot
+    placement_function_size: ClusterSizeSnapshot
     clusters: tuple[ClusterSnapshot, ...]
     selected_cluster_ids: tuple[int, ...]
     next_cluster_id: int

@@ -10,6 +10,7 @@ class ShapeKind(StrEnum):
     CIRCLE = "circle"
     RECTANGLE = "rectangle"
     POLYGON = "polygon"
+    FUNCTION = "function"
 
 
 class DistributionMode(StrEnum):
@@ -23,6 +24,7 @@ class CanvasTool(StrEnum):
     CIRCLE = "circle"
     RECTANGLE = "rectangle"
     POLYGON = "polygon"
+    FUNCTION = "function"
 
     def shape_kind(self) -> ShapeKind | None:
         if self is CanvasTool.CIRCLE:
@@ -31,7 +33,17 @@ class CanvasTool(StrEnum):
             return ShapeKind.RECTANGLE
         if self is CanvasTool.POLYGON:
             return ShapeKind.POLYGON
+        if self is CanvasTool.FUNCTION:
+            return ShapeKind.FUNCTION
         return None
+
+
+class FunctionOrientation(StrEnum):
+    Y_OF_X = "y_of_x"
+    X_OF_Y = "x_of_y"
+
+    def variable_name(self) -> str:
+        return "x" if self is FunctionOrientation.Y_OF_X else "y"
 
 
 @dataclass(slots=True)
@@ -77,6 +89,13 @@ class ClusterSize:
     height: float = field(default_factory=lambda: get_app_config().defaults.cluster_height)
     polygon_scale: float = 100.0
     vertices_local: list[Point] = field(default_factory=list)
+    function_expression: str = field(default_factory=lambda: get_app_config().defaults.function_expression)
+    function_orientation: FunctionOrientation = field(
+        default_factory=lambda: FunctionOrientation(get_app_config().defaults.function_orientation)
+    )
+    function_range_start: float = field(default_factory=lambda: get_app_config().defaults.function_range_start)
+    function_range_end: float = field(default_factory=lambda: get_app_config().defaults.function_range_end)
+    function_thickness: float = field(default_factory=lambda: get_app_config().defaults.function_thickness)
 
     def copy(self) -> "ClusterSize":
         return ClusterSize(
@@ -85,6 +104,11 @@ class ClusterSize:
             height=self.height,
             polygon_scale=self.polygon_scale,
             vertices_local=[Point(vertex.x, vertex.y) for vertex in self.vertices_local],
+            function_expression=self.function_expression,
+            function_orientation=self.function_orientation,
+            function_range_start=self.function_range_start,
+            function_range_end=self.function_range_end,
+            function_thickness=self.function_thickness,
         )
 
     def max_span(self, shape_kind: ShapeKind) -> float:
@@ -96,6 +120,8 @@ class ClusterSize:
             min_y = min(vertex.y for vertex in self.vertices_local)
             max_y = max(vertex.y for vertex in self.vertices_local)
             return max(max_x - min_x, max_y - min_y)
+        if shape_kind is ShapeKind.FUNCTION:
+            return max(self.width, self.height)
         return max(self.width, self.height)
 
 
@@ -135,6 +161,7 @@ class ClusterInstance:
 class AppState:
     placement_circle_size: ClusterSize = field(default_factory=ClusterSize)
     placement_rectangle_size: ClusterSize = field(default_factory=ClusterSize)
+    placement_function_size: ClusterSize = field(default_factory=ClusterSize)
     clusters: list[ClusterInstance] = field(default_factory=list)
     selected_cluster_ids: list[int] = field(default_factory=list)
     next_cluster_id: int = 1
@@ -150,6 +177,8 @@ class AppState:
             return self.placement_circle_size
         if shape_kind is ShapeKind.POLYGON:
             return ClusterSize()
+        if shape_kind is ShapeKind.FUNCTION:
+            return self.placement_function_size
         return self.placement_rectangle_size
 
     def selected_clusters(self) -> list[ClusterInstance]:
@@ -226,6 +255,7 @@ class AppState:
         return EditableStateSnapshot(
             placement_circle_size=ClusterSizeSnapshot.from_model(self.placement_circle_size),
             placement_rectangle_size=ClusterSizeSnapshot.from_model(self.placement_rectangle_size),
+            placement_function_size=ClusterSizeSnapshot.from_model(self.placement_function_size),
             clusters=tuple(ClusterSnapshot.from_model(cluster) for cluster in self.clusters),
             selected_cluster_ids=tuple(self.selected_cluster_ids),
             next_cluster_id=self.next_cluster_id,
@@ -240,6 +270,7 @@ class AppState:
     def apply_editable_snapshot(self, snapshot: "EditableStateSnapshot") -> None:
         self.placement_circle_size = snapshot.placement_circle_size.to_model()
         self.placement_rectangle_size = snapshot.placement_rectangle_size.to_model()
+        self.placement_function_size = snapshot.placement_function_size.to_model()
         self.clusters = [cluster.to_model() for cluster in snapshot.clusters]
         self.selected_cluster_ids = list(snapshot.selected_cluster_ids)
         self.next_cluster_id = snapshot.next_cluster_id

@@ -578,6 +578,26 @@ class StarCanvas(Gtk.DrawingArea):
                         value=self._format_hover_value(cluster.size.height),
                     )
                 )
+            elif cluster.shape_kind is ShapeKind.FUNCTION:
+                lines.append(
+                    localizer.text(
+                        "canvas.hover.orientation",
+                        value=localizer.function_orientation_name(cluster.size.function_orientation),
+                    )
+                )
+                lines.append(
+                    localizer.text(
+                        "canvas.hover.range",
+                        start=self._format_hover_value(cluster.size.function_range_start),
+                        end=self._format_hover_value(cluster.size.function_range_end),
+                    )
+                )
+                lines.append(
+                    localizer.text(
+                        "canvas.hover.thickness",
+                        value=self._format_hover_value(cluster.size.function_thickness),
+                    )
+                )
             else:
                 lines.append(
                     localizer.text(
@@ -585,7 +605,6 @@ class StarCanvas(Gtk.DrawingArea):
                         count=len(cluster.size.vertices_local),
                     )
                 )
-
             if counts is not None and index < len(counts):
                 lines.append(localizer.text("canvas.hover.stars", count=counts[index]))
             else:

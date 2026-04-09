@@ -8,7 +8,7 @@ import random
 from .config import AppConfig, get_app_config
 from .localization import get_localizer
 from .models import AppState, ClusterConfig, ClusterInstance, ClusterSize, DistributionMode, Point, ShapeKind, StarParameterConfig, StarRecord
-from .shapes import BoundingBox, get_shape, validate_polygon_vertices
+from .shapes import BoundingBox, get_shape, validate_function_cluster_size, validate_polygon_vertices
 
 
 class GenerationError(RuntimeError):
@@ -59,6 +59,9 @@ def validate_cluster_size(shape_kind: ShapeKind, size: ClusterSize, label: str) 
     if shape_kind is ShapeKind.POLYGON:
         for error in validate_polygon_vertices(size.vertices_local):
             errors.append(f"{label}: {error}")
+    if shape_kind is ShapeKind.FUNCTION:
+        for error in validate_function_cluster_size(size):
+            errors.append(f"{label}: {error}")
     return errors
 
 
@@ -85,6 +88,13 @@ def validate_state(state: AppState) -> list[str]:
             ShapeKind.RECTANGLE,
             state.placement_rectangle_size,
             localizer.text("error.rectangle_placement"),
+        )
+    )
+    errors.extend(
+        validate_cluster_size(
+            ShapeKind.FUNCTION,
+            state.placement_function_size,
+            localizer.text("error.function_placement"),
         )
     )
 

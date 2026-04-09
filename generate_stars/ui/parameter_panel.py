@@ -51,6 +51,7 @@ class ParameterPanelView(PanelView):
     def apply(self, view_model: ParameterPanelViewModel) -> None:
         self.parameter_enabled_check.set_active(view_model.enabled)
         self.parameter_fields_box.set_sensitive(view_model.enabled)
-        self.parameter_name_entry.set_text(view_model.name)
+        if self.parameter_name_entry.get_text() != view_model.name:
+            self.parameter_name_entry.set_text(view_model.name)
         self.parameter_min_spin.set_value(view_model.min_value)
         self.parameter_max_spin.set_value(view_model.max_value)

@@ -5,15 +5,23 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from ..config import AppConfig
-from ..generator import GenerationError, even_counts, format_points_for_export, generate_star_field, validate_state
+from ..generator import GenerationError, even_counts, format_points_for_export, generate_star_field, validate_cluster_size, validate_state
 from ..history import HistoryManager
 from ..localization import get_localizer
-from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, Point, ShapeKind
+from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind
 from ..preferences import load_last_save_path, save_last_save_path
-from ..shapes import get_shape, polygon_geometry_from_world_vertices, polygon_local_bounds, polygon_size_from_local_vertices, validate_polygon_vertices
+from ..shapes import (
+    function_size_from_parameters,
+    get_shape,
+    polygon_geometry_from_world_vertices,
+    polygon_local_bounds,
+    polygon_size_from_local_vertices,
+    validate_polygon_vertices,
+)
 from .view_models import (
     ClusterPanelViewModel,
     DistributionPanelViewModel,
+    FunctionEditorViewModel,
     ManualCountRowViewModel,
     ParameterPanelViewModel,
     PlacementViewModel,
@@ -45,6 +53,7 @@ class EditorController:
         self._last_save_path = load_last_save_path()
         self._continuous_history_source: object | None = None
         self._change_listener: Callable[[], None] | None = None
+        self._refresh_function_size(self.state.placement_function_size)
 
     @property
     def active_tool(self) -> CanvasTool:
@@ -253,12 +262,25 @@ class EditorController:
         self.set_status(localizer.text("status.pasted_clusters", count=len(pasted_cluster_ids)))
         return len(pasted_cluster_ids)
 
-    def place_cluster(self, shape_kind: ShapeKind, center: Point) -> int:
+    def place_cluster(self, shape_kind: ShapeKind, center: Point) -> int | None:
+        localizer = get_localizer()
+        placement_size = self.state.placement_size_for_shape(shape_kind).copy()
+        label_key = {
+            ShapeKind.CIRCLE: "error.circle_placement",
+            ShapeKind.RECTANGLE: "error.rectangle_placement",
+            ShapeKind.FUNCTION: "error.function_placement",
+        }.get(shape_kind)
+        if label_key is not None:
+            errors = validate_cluster_size(shape_kind, placement_size, localizer.text(label_key))
+            if errors:
+                self.set_status(errors[0], "error")
+                return None
+
         cluster_id = 0
 
         def mutate() -> None:
             nonlocal cluster_id
-            cluster = self.state.add_cluster(shape_kind, center)
+            cluster = self.state.add_cluster(shape_kind, center, placement_size)
             self.state.select_only(cluster.cluster_id)
             cluster_id = cluster.cluster_id
 
@@ -357,8 +379,43 @@ class EditorController:
         self.clear_status()
         self._notify()
 
+    def set_placement_function_orientation(self, orientation: FunctionOrientation) -> None:
+        def mutate() -> None:
+            self.state.placement_function_size.function_orientation = orientation
+            self._refresh_function_size(self.state.placement_function_size)
+
+        self._run_immediate_edit(mutate)
+
+    def set_placement_function_expression(self, expression: str, source: object) -> None:
+        self.ensure_continuous_history(source)
+        self.state.placement_function_size.function_expression = expression
+        self._refresh_function_size(self.state.placement_function_size)
+        self.clear_status()
+        self._notify()
+
+    def set_placement_function_range_start(self, value: float, source: object) -> None:
+        self.ensure_continuous_history(source)
+        self.state.placement_function_size.function_range_start = value
+        self._refresh_function_size(self.state.placement_function_size)
+        self.clear_status()
+        self._notify()
+
+    def set_placement_function_range_end(self, value: float, source: object) -> None:
+        self.ensure_continuous_history(source)
+        self.state.placement_function_size.function_range_end = value
+        self._refresh_function_size(self.state.placement_function_size)
+        self.clear_status()
+        self._notify()
+
+    def set_placement_function_thickness(self, value: float, source: object) -> None:
+        self.ensure_continuous_history(source)
+        self.state.placement_function_size.function_thickness = value
+        self._refresh_function_size(self.state.placement_function_size)
+        self.clear_status()
+        self._notify()
+
     def set_selection_shape(self, target_shape: ShapeKind) -> None:
-        if not self.state.selected_clusters():
+        if target_shape is ShapeKind.FUNCTION or not self.state.selected_clusters():
             return
         self._run_immediate_edit(lambda: self._apply_selection_shape_change(target_shape))
 
@@ -383,6 +440,57 @@ class EditorController:
     def set_selection_polygon_scale(self, value: float, source: object) -> None:
         self.ensure_continuous_history(source)
         self._apply_selection_polygon_scale(value)
+        self.clear_status()
+        self._notify()
+
+    def set_selection_function_orientation(self, orientation: FunctionOrientation) -> None:
+        if not self._selected_function_clusters():
+            return
+
+        def mutate() -> None:
+            for cluster in self._selected_function_clusters():
+                cluster.size.function_orientation = orientation
+                self._refresh_function_size(cluster.size)
+
+        self._run_immediate_edit(mutate)
+
+    def set_selection_function_expression(self, expression: str, source: object) -> None:
+        selected = self._selected_function_clusters()
+        if len(selected) != 1:
+            return
+        self.ensure_continuous_history(source)
+        selected[0].size.function_expression = expression
+        self._refresh_function_size(selected[0].size)
+        self.clear_status()
+        self._notify()
+
+    def set_selection_function_range_start(self, value: float, source: object) -> None:
+        if not self._selected_function_clusters():
+            return
+        self.ensure_continuous_history(source)
+        for cluster in self._selected_function_clusters():
+            cluster.size.function_range_start = value
+            self._refresh_function_size(cluster.size)
+        self.clear_status()
+        self._notify()
+
+    def set_selection_function_range_end(self, value: float, source: object) -> None:
+        if not self._selected_function_clusters():
+            return
+        self.ensure_continuous_history(source)
+        for cluster in self._selected_function_clusters():
+            cluster.size.function_range_end = value
+            self._refresh_function_size(cluster.size)
+        self.clear_status()
+        self._notify()
+
+    def set_selection_function_thickness(self, value: float, source: object) -> None:
+        if not self._selected_function_clusters():
+            return
+        self.ensure_continuous_history(source)
+        for cluster in self._selected_function_clusters():
+            cluster.size.function_thickness = value
+            self._refresh_function_size(cluster.size)
         self.clear_status()
         self._notify()
 
@@ -501,6 +609,39 @@ class EditorController:
         for cluster, count in zip(self.state.clusters, counts, strict=False):
             cluster.manual_star_count = count
 
+    def _selected_function_clusters(self):
+        return [cluster for cluster in self.state.selected_clusters() if cluster.shape_kind is ShapeKind.FUNCTION]
+
+    def _refresh_function_size(self, size: ClusterSize) -> None:
+        fallback_vertices = size.vertices_local
+        try:
+            refreshed = function_size_from_parameters(
+                size.function_expression,
+                size.function_orientation,
+                size.function_range_start,
+                size.function_range_end,
+                size.function_thickness,
+                fallback_vertices_local=fallback_vertices,
+            )
+        except ValueError:
+            return
+
+        size.radius = refreshed.radius
+        size.width = refreshed.width
+        size.height = refreshed.height
+        size.vertices_local = [Point(vertex.x, vertex.y) for vertex in refreshed.vertices_local]
+
+    def _function_editor_view_model(self, size: ClusterSize, *, visible: bool, show_expression: bool) -> FunctionEditorViewModel:
+        return FunctionEditorViewModel(
+            visible=visible,
+            show_expression=show_expression,
+            expression=size.function_expression,
+            orientation_id=size.function_orientation.value,
+            range_start=size.function_range_start,
+            range_end=size.function_range_end,
+            thickness=size.function_thickness,
+        )
+
     def _rectangle_polygon_vertices(self, width: float, height: float) -> list[Point]:
         half_width = width / 2.0
         half_height = height / 2.0
@@ -514,6 +655,9 @@ class EditorController:
     def _convert_cluster_geometry(self, cluster, target_shape: ShapeKind) -> tuple[Point, ClusterSize]:
         current_center = Point(cluster.center.x, cluster.center.y)
         current_size = cluster.size
+
+        if cluster.shape_kind is ShapeKind.FUNCTION or target_shape is ShapeKind.FUNCTION:
+            return current_center, current_size.copy()
 
         if cluster.shape_kind is target_shape:
             return current_center, current_size.copy()
@@ -556,6 +700,8 @@ class EditorController:
 
     def _apply_selection_shape_change(self, target_shape: ShapeKind) -> None:
         for cluster in self.state.selected_clusters():
+            if cluster.shape_kind is ShapeKind.FUNCTION:
+                continue
             cluster.center, cluster.size = self._convert_cluster_geometry(cluster, target_shape)
             cluster.shape_kind = target_shape
 
@@ -599,6 +745,11 @@ class EditorController:
     def _build_cluster_panel_view_model(self) -> ClusterPanelViewModel:
         localizer = get_localizer()
         placement_shape = self.active_tool.shape_kind()
+        default_function_editor = self._function_editor_view_model(
+            self.state.placement_function_size,
+            visible=False,
+            show_expression=False,
+        )
         if placement_shape is None:
             placement = PlacementViewModel(
                 info_text=localizer.text("controller.placement.none"),
@@ -608,6 +759,7 @@ class EditorController:
                 width=self.state.placement_rectangle_size.width,
                 show_height=False,
                 height=self.state.placement_rectangle_size.height,
+                function_editor=default_function_editor,
             )
         elif placement_shape is ShapeKind.POLYGON:
             placement = PlacementViewModel(
@@ -618,6 +770,25 @@ class EditorController:
                 width=self.state.placement_rectangle_size.width,
                 show_height=False,
                 height=self.state.placement_rectangle_size.height,
+                function_editor=default_function_editor,
+            )
+        elif placement_shape is ShapeKind.FUNCTION:
+            placement = PlacementViewModel(
+                info_text=localizer.text(
+                    "controller.placement.shape_defaults",
+                    shape_name=localizer.shape_name(placement_shape),
+                ),
+                show_radius=False,
+                radius=self.state.placement_circle_size.radius,
+                show_width=False,
+                width=self.state.placement_rectangle_size.width,
+                show_height=False,
+                height=self.state.placement_rectangle_size.height,
+                function_editor=self._function_editor_view_model(
+                    self.state.placement_function_size,
+                    visible=True,
+                    show_expression=True,
+                ),
             )
         else:
             placement_size = self.state.placement_size_for_shape(placement_shape)
@@ -632,11 +803,13 @@ class EditorController:
                 width=placement_size.width,
                 show_height=placement_shape is ShapeKind.RECTANGLE,
                 height=placement_size.height,
+                function_editor=default_function_editor,
             )
 
         selected = self.state.selected_clusters()
         selection_shape = self.state.selection_shape_kind()
         reference_size = selected[0].size if selected else ClusterSize()
+        contains_function = any(cluster.shape_kind is ShapeKind.FUNCTION for cluster in selected)
 
         if not selected:
             selection = SelectionViewModel(
@@ -651,6 +824,7 @@ class EditorController:
                 height=reference_size.height,
                 show_polygon_scale=False,
                 polygon_scale=100.0,
+                function_editor=default_function_editor,
                 size_hint=None,
             )
             return ClusterPanelViewModel(placement=placement, selection=selection)
@@ -661,9 +835,14 @@ class EditorController:
             else localizer.text("controller.selection.many", count=len(selected))
         )
         if selection_shape is None:
+            size_hint = (
+                localizer.text("controller.selection.function_mixed_hint")
+                if contains_function
+                else localizer.text("controller.selection.mixed_shape_hint")
+            )
             selection = SelectionViewModel(
                 info_text=info_text,
-                show_shape_selector=True,
+                show_shape_selector=not contains_function,
                 active_shape_id=None,
                 show_radius=False,
                 radius=reference_size.radius,
@@ -673,7 +852,8 @@ class EditorController:
                 height=reference_size.height,
                 show_polygon_scale=False,
                 polygon_scale=100.0,
-                size_hint=localizer.text("controller.selection.mixed_shape_hint"),
+                function_editor=default_function_editor,
+                size_hint=size_hint,
             )
             return ClusterPanelViewModel(placement=placement, selection=selection)
 
@@ -683,13 +863,19 @@ class EditorController:
                 size_hint = localizer.text("controller.selection.polygon_single_hint")
             else:
                 size_hint = localizer.text("controller.selection.polygon_multi_hint")
+        elif selection_shape is ShapeKind.FUNCTION:
+            if len(selected) == 1:
+                size_hint = localizer.text("controller.selection.function_single_hint")
+            else:
+                size_hint = localizer.text("controller.selection.function_multi_hint")
         elif len(selected) > 1:
             size_hint = localizer.text("controller.selection.multi_size_hint")
 
+        show_function = selection_shape is ShapeKind.FUNCTION
         selection = SelectionViewModel(
             info_text=info_text,
-            show_shape_selector=True,
-            active_shape_id=selection_shape.value,
+            show_shape_selector=selection_shape is not ShapeKind.FUNCTION,
+            active_shape_id=selection_shape.value if selection_shape is not ShapeKind.FUNCTION else None,
             show_radius=selection_shape is ShapeKind.CIRCLE,
             radius=reference_size.radius,
             show_width=selection_shape is ShapeKind.RECTANGLE,
@@ -698,6 +884,11 @@ class EditorController:
             height=reference_size.height,
             show_polygon_scale=selection_shape is ShapeKind.POLYGON,
             polygon_scale=reference_size.polygon_scale,
+            function_editor=self._function_editor_view_model(
+                reference_size,
+                visible=show_function,
+                show_expression=show_function and len(selected) == 1,
+            ),
             size_hint=size_hint,
         )
         return ClusterPanelViewModel(placement=placement, selection=selection)
@@ -779,4 +970,6 @@ class EditorController:
             return self.config.text.circle_tool_description
         if tool is CanvasTool.RECTANGLE:
             return self.config.text.rectangle_tool_description
-        return self.config.text.polygon_tool_description
+        if tool is CanvasTool.POLYGON:
+            return self.config.text.polygon_tool_description
+        return self.config.text.function_tool_description

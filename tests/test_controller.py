@@ -4,7 +4,8 @@ import unittest
 
 from generate_stars.config import initialize_app_config
 from generate_stars.controllers.editor_controller import EditorController
-from generate_stars.models import AppState, ClusterInstance, ClusterSize, DistributionMode, Point, ShapeKind
+from generate_stars.models import AppState, ClusterInstance, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind
+from generate_stars.shapes import function_size_from_parameters
 
 
 def make_cluster(
@@ -17,19 +18,34 @@ def make_cluster(
     height: float = 10.0,
     polygon_scale: float = 100.0,
     vertices_local: list[Point] | None = None,
+    function_expression: str = "0",
+    function_orientation: FunctionOrientation = FunctionOrientation.Y_OF_X,
+    function_range_start: float = -10.0,
+    function_range_end: float = 10.0,
+    function_thickness: float = 4.0,
     manual_star_count: int = 0,
 ) -> ClusterInstance:
-    return ClusterInstance(
-        cluster_id=cluster_id,
-        shape_kind=shape_kind,
-        center=center,
-        size=ClusterSize(
+    if shape_kind is ShapeKind.FUNCTION:
+        size = function_size_from_parameters(
+            function_expression,
+            function_orientation,
+            function_range_start,
+            function_range_end,
+            function_thickness,
+        )
+    else:
+        size = ClusterSize(
             radius=radius,
             width=width,
             height=height,
             polygon_scale=polygon_scale,
             vertices_local=[Point(vertex.x, vertex.y) for vertex in vertices_local or []],
-        ),
+        )
+    return ClusterInstance(
+        cluster_id=cluster_id,
+        shape_kind=shape_kind,
+        center=center,
+        size=size,
         manual_star_count=manual_star_count,
     )
 
@@ -192,6 +208,30 @@ class EditorControllerTests(unittest.TestCase):
         self.assertEqual(copied_count, 0)
         self.assertEqual(pasted_count, 0)
         self.assertEqual(self.controller.state.clusters, [])
+
+    def test_function_selection_hides_shape_selector_and_exposes_function_editor(self) -> None:
+        self.controller.state.clusters = [
+            make_cluster(
+                1,
+                ShapeKind.FUNCTION,
+                Point(5.0, -3.0),
+                function_expression="0.25 * x",
+                function_orientation=FunctionOrientation.Y_OF_X,
+                function_range_start=-4.0,
+                function_range_end=6.0,
+                function_thickness=3.5,
+            )
+        ]
+        self.controller.state.selected_cluster_ids = [1]
+
+        view_model = self.controller.build_window_view_model()
+
+        self.assertFalse(view_model.cluster_panel.selection.show_shape_selector)
+        self.assertTrue(view_model.cluster_panel.selection.function_editor.visible)
+        self.assertTrue(view_model.cluster_panel.selection.function_editor.show_expression)
+        self.assertEqual(view_model.cluster_panel.selection.function_editor.expression, "0.25 * x")
+        self.assertEqual(view_model.cluster_panel.selection.function_editor.orientation_id, "y_of_x")
+        self.assertEqual(view_model.toolbar.active_tool_description, self.controller.config.text.select_tool_description)
 
 
 if __name__ == "__main__":

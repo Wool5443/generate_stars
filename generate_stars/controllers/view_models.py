@@ -15,6 +15,17 @@ class ToolbarViewModel:
 
 
 @dataclass(frozen=True, slots=True)
+class FunctionEditorViewModel:
+    visible: bool
+    show_expression: bool
+    expression: str
+    orientation_id: str
+    range_start: float
+    range_end: float
+    thickness: float
+
+
+@dataclass(frozen=True, slots=True)
 class PlacementViewModel:
     info_text: str
     show_radius: bool
@@ -23,6 +34,7 @@ class PlacementViewModel:
     width: float
     show_height: bool
     height: float
+    function_editor: FunctionEditorViewModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +50,7 @@ class SelectionViewModel:
     height: float
     show_polygon_scale: bool
     polygon_scale: float
+    function_editor: FunctionEditorViewModel
     size_hint: str | None
 
 

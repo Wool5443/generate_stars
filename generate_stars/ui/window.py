@@ -13,7 +13,7 @@ from ..config import AppConfig, ConfigIssue
 from ..controllers.editor_controller import EditorController
 from ..generator import GenerationError
 from ..localization import get_localizer
-from ..models import CanvasTool, DistributionMode, ShapeKind
+from ..models import CanvasTool, DistributionMode, FunctionOrientation, ShapeKind
 from .canvas import StarCanvas
 from .sidebar import SidebarView
 from .toolbar import CanvasToolbarView
@@ -72,17 +72,28 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.toolbar_view.circle_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.CIRCLE)
         self.toolbar_view.rectangle_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.RECTANGLE)
         self.toolbar_view.polygon_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.POLYGON)
+        self.toolbar_view.function_tool_button.connect("toggled", self._on_tool_button_toggled, CanvasTool.FUNCTION)
         self.toolbar_view.snap_button.connect("toggled", self._on_snap_toggled)
 
         cluster_panel = self.sidebar_view.cluster_panel
         cluster_panel.placement_radius_spin.connect("value-changed", self._on_placement_radius_changed)
         cluster_panel.placement_width_spin.connect("value-changed", self._on_placement_width_changed)
         cluster_panel.placement_height_spin.connect("value-changed", self._on_placement_height_changed)
+        cluster_panel.placement_function_orientation_combo.connect("changed", self._on_placement_function_orientation_changed)
+        cluster_panel.placement_function_expression_entry.connect("changed", self._on_placement_function_expression_changed)
+        cluster_panel.placement_function_range_start_spin.connect("value-changed", self._on_placement_function_range_start_changed)
+        cluster_panel.placement_function_range_end_spin.connect("value-changed", self._on_placement_function_range_end_changed)
+        cluster_panel.placement_function_thickness_spin.connect("value-changed", self._on_placement_function_thickness_changed)
         cluster_panel.selection_shape_combo.connect("changed", self._on_selection_shape_changed)
         cluster_panel.selection_radius_spin.connect("value-changed", self._on_selection_radius_changed)
         cluster_panel.selection_width_spin.connect("value-changed", self._on_selection_width_changed)
         cluster_panel.selection_height_spin.connect("value-changed", self._on_selection_height_changed)
         cluster_panel.selection_polygon_scale_spin.connect("value-changed", self._on_selection_polygon_scale_changed)
+        cluster_panel.selection_function_orientation_combo.connect("changed", self._on_selection_function_orientation_changed)
+        cluster_panel.selection_function_expression_entry.connect("changed", self._on_selection_function_expression_changed)
+        cluster_panel.selection_function_range_start_spin.connect("value-changed", self._on_selection_function_range_start_changed)
+        cluster_panel.selection_function_range_end_spin.connect("value-changed", self._on_selection_function_range_end_changed)
+        cluster_panel.selection_function_thickness_spin.connect("value-changed", self._on_selection_function_thickness_changed)
 
         distribution_panel = self.sidebar_view.distribution_panel
         distribution_panel.total_stars_spin.connect("value-changed", self._on_total_stars_changed)
@@ -224,6 +235,9 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if keyval in (Gdk.KEY_p, Gdk.KEY_P):
             self._set_active_tool(CanvasTool.POLYGON)
             return True
+        if keyval in (Gdk.KEY_f, Gdk.KEY_F):
+            self._set_active_tool(CanvasTool.FUNCTION)
+            return True
         if keyval == Gdk.KEY_Escape:
             if self.canvas.cancel_polygon_draft():
                 self.controller.clear_status(notify=True)
@@ -270,6 +284,33 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             return
         self.controller.set_placement_height(spin.get_value(), spin)
 
+    def _on_placement_function_orientation_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._syncing_ui:
+            return
+        active_id = combo.get_active_id()
+        if active_id:
+            self.controller.set_placement_function_orientation(FunctionOrientation(active_id))
+
+    def _on_placement_function_expression_changed(self, entry: Gtk.Entry) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_placement_function_expression(entry.get_text(), entry)
+
+    def _on_placement_function_range_start_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_placement_function_range_start(spin.get_value(), spin)
+
+    def _on_placement_function_range_end_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_placement_function_range_end(spin.get_value(), spin)
+
+    def _on_placement_function_thickness_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_placement_function_thickness(spin.get_value(), spin)
+
     def _on_selection_shape_changed(self, combo: Gtk.ComboBoxText) -> None:
         if self._syncing_ui:
             return
@@ -296,6 +337,33 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if self._syncing_ui:
             return
         self.controller.set_selection_polygon_scale(spin.get_value(), spin)
+
+    def _on_selection_function_orientation_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._syncing_ui:
+            return
+        active_id = combo.get_active_id()
+        if active_id:
+            self.controller.set_selection_function_orientation(FunctionOrientation(active_id))
+
+    def _on_selection_function_expression_changed(self, entry: Gtk.Entry) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_selection_function_expression(entry.get_text(), entry)
+
+    def _on_selection_function_range_start_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_selection_function_range_start(spin.get_value(), spin)
+
+    def _on_selection_function_range_end_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_selection_function_range_end(spin.get_value(), spin)
+
+    def _on_selection_function_thickness_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_selection_function_thickness(spin.get_value(), spin)
 
     def _on_total_stars_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:

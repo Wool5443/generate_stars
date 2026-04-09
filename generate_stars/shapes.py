@@ -2,15 +2,43 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import lru_cache
+import ast
 import math
 import random
 
 import cairo
 
+from .config import get_app_config
 from .localization import get_localizer
-from .models import ClusterSize, Point, ShapeKind
+from .models import ClusterSize, FunctionOrientation, Point, ShapeKind
 
 POLYGON_EPSILON = 1e-6
+SAFE_FUNCTIONS = {
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
+    "asin": math.asin,
+    "acos": math.acos,
+    "atan": math.atan,
+    "abs": abs,
+    "sqrt": math.sqrt,
+    "exp": math.exp,
+    "log": math.log,
+    "log10": math.log10,
+    "floor": math.floor,
+    "ceil": math.ceil,
+}
+SAFE_CONSTANTS = {
+    "pi": math.pi,
+    "e": math.e,
+}
+
+
+class FunctionDefinitionError(ValueError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +59,65 @@ class BoundingBox:
 
 def _distance(a: Point, b: Point) -> float:
     return math.hypot(a.x - b.x, a.y - b.y)
+
+
+def _validate_expression_node(node: ast.AST, variable_name: str) -> None:
+    if isinstance(node, ast.Expression):
+        _validate_expression_node(node.body, variable_name)
+        return
+    if isinstance(node, ast.BinOp):
+        if not isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)):
+            raise FunctionDefinitionError("expression")
+        _validate_expression_node(node.left, variable_name)
+        _validate_expression_node(node.right, variable_name)
+        return
+    if isinstance(node, ast.UnaryOp):
+        if not isinstance(node.op, (ast.UAdd, ast.USub)):
+            raise FunctionDefinitionError("expression")
+        _validate_expression_node(node.operand, variable_name)
+        return
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name) or node.func.id not in SAFE_FUNCTIONS or node.keywords:
+            raise FunctionDefinitionError("expression")
+        for argument in node.args:
+            _validate_expression_node(argument, variable_name)
+        return
+    if isinstance(node, ast.Name):
+        if node.id != variable_name and node.id not in SAFE_CONSTANTS:
+            raise FunctionDefinitionError("expression")
+        return
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return
+    raise FunctionDefinitionError("expression")
+
+
+@lru_cache(maxsize=256)
+def _compiled_function_expression(expression: str, variable_name: str):
+    normalized = expression.strip().replace("^", "**")
+    if not normalized:
+        raise FunctionDefinitionError("expression")
+    try:
+        tree = ast.parse(normalized, mode="eval")
+    except SyntaxError as exc:
+        raise FunctionDefinitionError("expression") from exc
+    _validate_expression_node(tree, variable_name)
+    return compile(tree, "<function-expression>", "eval")
+
+
+def evaluate_function_expression(
+    expression: str,
+    orientation: FunctionOrientation,
+    value: float,
+) -> float:
+    code = _compiled_function_expression(expression, orientation.variable_name())
+    context = {orientation.variable_name(): value, **SAFE_CONSTANTS, **SAFE_FUNCTIONS}
+    result = eval(code, {"__builtins__": {}}, context)
+    if not isinstance(result, (int, float)):
+        raise FunctionDefinitionError("evaluation")
+    numeric = float(result)
+    if not math.isfinite(numeric):
+        raise FunctionDefinitionError("evaluation")
+    return numeric
 
 
 def normalize_polygon_vertices(vertices: list[Point], epsilon: float = POLYGON_EPSILON) -> list[Point]:
@@ -126,6 +213,138 @@ def polygon_geometry_from_world_vertices(
 ) -> tuple[Point, ClusterSize]:
     center, vertices_local = centered_polygon_vertices(vertices_world)
     return center, polygon_size_from_local_vertices(vertices_local, polygon_scale=polygon_scale)
+
+
+def _function_sample_count(sample_count: int | None = None) -> int:
+    if sample_count is not None:
+        return max(8, sample_count)
+    return max(8, get_app_config().generation.function_sample_count)
+
+
+def build_function_curve_local_points(
+    size: ClusterSize,
+    sample_count: int | None = None,
+) -> list[Point]:
+    if size.function_range_end <= size.function_range_start:
+        raise FunctionDefinitionError("range")
+    if size.function_thickness <= 0.0:
+        raise FunctionDefinitionError("thickness")
+
+    count = _function_sample_count(sample_count)
+    points: list[Point] = []
+    for index in range(count):
+        ratio = index / (count - 1)
+        independent = size.function_range_start + (size.function_range_end - size.function_range_start) * ratio
+        dependent = evaluate_function_expression(
+            size.function_expression,
+            size.function_orientation,
+            independent,
+        )
+        if size.function_orientation is FunctionOrientation.Y_OF_X:
+            points.append(Point(independent, dependent))
+        else:
+            points.append(Point(dependent, independent))
+    return points
+
+
+def build_function_band_local_vertices(
+    size: ClusterSize,
+    sample_count: int | None = None,
+) -> list[Point]:
+    curve_points = build_function_curve_local_points(size, sample_count=sample_count)
+    half_thickness = size.function_thickness / 2.0
+    outer: list[Point] = []
+    inner: list[Point] = []
+
+    for index, point in enumerate(curve_points):
+        if index == 0:
+            tangent_x = curve_points[1].x - point.x
+            tangent_y = curve_points[1].y - point.y
+        elif index == len(curve_points) - 1:
+            tangent_x = point.x - curve_points[index - 1].x
+            tangent_y = point.y - curve_points[index - 1].y
+        else:
+            tangent_x = curve_points[index + 1].x - curve_points[index - 1].x
+            tangent_y = curve_points[index + 1].y - curve_points[index - 1].y
+
+        tangent_length = math.hypot(tangent_x, tangent_y)
+        if tangent_length <= POLYGON_EPSILON:
+            raise FunctionDefinitionError("geometry")
+
+        normal_x = -tangent_y / tangent_length
+        normal_y = tangent_x / tangent_length
+        outer.append(Point(point.x + normal_x * half_thickness, point.y + normal_y * half_thickness))
+        inner.append(Point(point.x - normal_x * half_thickness, point.y - normal_y * half_thickness))
+
+    vertices = normalize_polygon_vertices(outer + list(reversed(inner)))
+    if len(vertices) < 3 or not is_simple_polygon(vertices):
+        raise FunctionDefinitionError("geometry")
+    return vertices
+
+
+def function_size_from_parameters(
+    expression: str,
+    orientation: FunctionOrientation,
+    range_start: float,
+    range_end: float,
+    thickness: float,
+    sample_count: int | None = None,
+    fallback_vertices_local: list[Point] | None = None,
+) -> ClusterSize:
+    draft = ClusterSize(
+        function_expression=expression,
+        function_orientation=orientation,
+        function_range_start=range_start,
+        function_range_end=range_end,
+        function_thickness=thickness,
+        vertices_local=[Point(vertex.x, vertex.y) for vertex in fallback_vertices_local or []],
+    )
+    vertices_local = build_function_band_local_vertices(draft, sample_count=sample_count)
+    bounds = polygon_local_bounds(vertices_local)
+    width = max(bounds.max_x - bounds.min_x, 0.0)
+    height = max(bounds.max_y - bounds.min_y, 0.0)
+    return ClusterSize(
+        radius=max(width, height) / 2.0,
+        width=width,
+        height=height,
+        polygon_scale=100.0,
+        vertices_local=vertices_local,
+        function_expression=expression,
+        function_orientation=orientation,
+        function_range_start=range_start,
+        function_range_end=range_end,
+        function_thickness=thickness,
+    )
+
+
+def validate_function_cluster_size(size: ClusterSize) -> list[str]:
+    localizer = get_localizer()
+    try:
+        build_function_band_local_vertices(size)
+    except FunctionDefinitionError as exc:
+        if exc.code == "range":
+            return [localizer.text("error.function_range_invalid")]
+        if exc.code == "thickness":
+            return [localizer.text("error.function_thickness_positive")]
+        if exc.code == "geometry":
+            return [localizer.text("error.function_geometry_invalid")]
+        return [localizer.text("error.function_expression_invalid")]
+    return []
+
+
+def _vertices_signature(vertices: list[Point]) -> tuple[tuple[float, float], ...]:
+    normalized = normalize_polygon_vertices(vertices)
+    return tuple((vertex.x, vertex.y) for vertex in normalized)
+
+
+@lru_cache(maxsize=512)
+def _triangulated_polygon_payload(
+    signature: tuple[tuple[float, float], ...],
+) -> tuple[tuple[tuple[Point, Point, Point], ...], tuple[float, ...], float]:
+    vertices = [Point(x, y) for x, y in signature]
+    triangles = tuple(triangulate_polygon(vertices))
+    areas = tuple(abs(_cross(a, b, c)) / 2.0 for a, b, c in triangles)
+    return triangles, areas, sum(areas)
 
 
 def _cross(a: Point, b: Point, c: Point) -> float:
@@ -441,10 +660,80 @@ class PolygonShape(ClusterShape):
         )
 
 
+class FunctionShape(ClusterShape):
+    kind = ShapeKind.FUNCTION
+    label = "Function"
+
+    def _local_vertices(self, size: ClusterSize) -> list[Point]:
+        if size.vertices_local:
+            return normalize_polygon_vertices(size.vertices_local)
+        try:
+            return build_function_band_local_vertices(size)
+        except FunctionDefinitionError:
+            return []
+
+    def _world_vertices(self, center: Point, size: ClusterSize) -> list[Point]:
+        return polygon_world_vertices(center, self._local_vertices(size))
+
+    def draw_outline(self, context: cairo.Context, center: Point, size: ClusterSize) -> None:
+        vertices = self._world_vertices(center, size)
+        if len(vertices) < 2:
+            return
+        context.move_to(vertices[0].x, vertices[0].y)
+        for vertex in vertices[1:]:
+            context.line_to(vertex.x, vertex.y)
+        context.close_path()
+
+    def sample_point(self, center: Point, size: ClusterSize, rng: random.Random) -> Point:
+        local_vertices = self._local_vertices(size)
+        triangles, areas, total_area = _triangulated_polygon_payload(_vertices_signature(local_vertices))
+        if not triangles or total_area <= 0.0:
+            return Point(center.x, center.y)
+
+        target = rng.uniform(0.0, total_area)
+        cumulative = 0.0
+        chosen = triangles[-1]
+        for triangle, area in zip(triangles, areas, strict=True):
+            cumulative += area
+            if target <= cumulative:
+                chosen = triangle
+                break
+
+        a, b, c = chosen
+        r1 = math.sqrt(rng.random())
+        r2 = rng.random()
+        local_x = (1.0 - r1) * a.x + r1 * (1.0 - r2) * b.x + r1 * r2 * c.x
+        local_y = (1.0 - r1) * a.y + r1 * (1.0 - r2) * b.y + r1 * r2 * c.y
+        return Point(center.x + local_x, center.y + local_y)
+
+    def edge_distance(self, point: Point, center: Point, size: ClusterSize) -> float:
+        vertices = self._world_vertices(center, size)
+        if len(vertices) < 2:
+            return math.inf
+
+        min_distance = min(
+            _distance_point_to_segment(point, vertices[index], vertices[(index + 1) % len(vertices)])
+            for index in range(len(vertices))
+        )
+        if point_in_polygon(point, vertices):
+            return -min_distance
+        return min_distance
+
+    def bounding_box(self, center: Point, size: ClusterSize) -> BoundingBox:
+        local_bounds = polygon_local_bounds(self._local_vertices(size))
+        return BoundingBox(
+            min_x=center.x + local_bounds.min_x,
+            min_y=center.y + local_bounds.min_y,
+            max_x=center.x + local_bounds.max_x,
+            max_y=center.y + local_bounds.max_y,
+        )
+
+
 SHAPE_REGISTRY: dict[ShapeKind, ClusterShape] = {
     ShapeKind.CIRCLE: CircleShape(),
     ShapeKind.RECTANGLE: RectangleShape(),
     ShapeKind.POLYGON: PolygonShape(),
+    ShapeKind.FUNCTION: FunctionShape(),
 }
 
 
