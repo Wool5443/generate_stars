@@ -77,6 +77,7 @@ class StarCanvas(Gtk.DrawingArea):
         self._press_position = Point(0.0, 0.0)
         self._last_drag_position = Point(0.0, 0.0)
         self._primary_button_down = False
+        self._middle_button_down = False
         self._drag_mode: str | None = None
         self._active_cluster_id: int | None = None
         self._active_vertex_cluster_id: int | None = None
@@ -111,6 +112,12 @@ class StarCanvas(Gtk.DrawingArea):
         click.connect("pressed", self._on_pressed)
         click.connect("released", self._on_released)
         self.add_controller(click)
+
+        middle_click = Gtk.GestureClick.new()
+        middle_click.set_button(Gdk.BUTTON_MIDDLE)
+        middle_click.connect("pressed", self._on_middle_pressed)
+        middle_click.connect("released", self._on_middle_released)
+        self.add_controller(middle_click)
 
         motion = Gtk.EventControllerMotion.new()
         motion.connect("motion", self._on_motion)
@@ -413,6 +420,17 @@ class StarCanvas(Gtk.DrawingArea):
         if self.controller.active_tool is CanvasTool.POLYGON and self.has_polygon_draft():
             self._polygon_draft_preview = self._editable_world_point(x, y)
 
+    def _on_middle_pressed(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        self.controller.prepare_for_canvas_interaction()
+        self.grab_focus()
+        self._pointer_position = Point(x, y)
+        self._press_position = Point(x, y)
+        self._last_drag_position = Point(x, y)
+        self._middle_button_down = True
+        self._drag_mode = "pan"
+        self._set_hovered_vertex(None, None)
+        self._set_hovered_cluster(None)
+
     def _on_released(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         self._pointer_position = Point(x, y)
         self._last_drag_position = Point(x, y)
@@ -466,8 +484,28 @@ class StarCanvas(Gtk.DrawingArea):
             self._update_hover_state(x, y)
         self.queue_draw()
 
+    def _on_middle_released(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        self._pointer_position = Point(x, y)
+        self._last_drag_position = Point(x, y)
+        self._middle_button_down = False
+        if self._drag_mode == "pan" and not self._primary_button_down:
+            self._drag_mode = None
+        self._update_hover_state(x, y)
+        self.queue_draw()
+
     def _on_motion(self, controller: Gtk.EventControllerMotion, x: float, y: float) -> None:
         self._pointer_position = Point(x, y)
+
+        if self._middle_button_down:
+            dx = x - self._last_drag_position.x
+            dy = y - self._last_drag_position.y
+            self._last_drag_position = Point(x, y)
+            self.viewport.offset.x += dx
+            self.viewport.offset.y += dy
+            self._set_hovered_vertex(None, None)
+            self._set_hovered_cluster(None)
+            self.queue_draw()
+            return
 
         if not self._primary_button_down:
             self._update_hover_state(x, y)

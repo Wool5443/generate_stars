@@ -42,6 +42,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self._refresh_from_controller()
 
     def _build_ui(self) -> None:
+        self._build_header_bar()
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.set_child(root)
 
@@ -65,6 +66,29 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         canvas_shell.append(self.canvas)
 
         self._connect_signals()
+
+    def _build_header_bar(self) -> None:
+        localizer = get_localizer()
+        self.header_bar = Gtk.HeaderBar()
+        self.set_titlebar(self.header_bar)
+
+        self.help_button = Gtk.Button(label=localizer.text("ui.help"))
+        self.header_bar.pack_end(self.help_button)
+
+        self.config_menu_button = Gtk.MenuButton(label=localizer.text("ui.config"))
+        self.config_popover = Gtk.Popover()
+        self.config_popover_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.row_spacing)
+        self.config_popover_box.set_margin_top(self.config.ui.sidebar_margin)
+        self.config_popover_box.set_margin_bottom(self.config.ui.sidebar_margin)
+        self.config_popover_box.set_margin_start(self.config.ui.sidebar_margin)
+        self.config_popover_box.set_margin_end(self.config.ui.sidebar_margin)
+        self.config_save_button = Gtk.Button(label=localizer.text("ui.save_configuration"))
+        self.config_load_button = Gtk.Button(label=localizer.text("ui.load_configuration"))
+        self.config_popover_box.append(self.config_save_button)
+        self.config_popover_box.append(self.config_load_button)
+        self.config_popover.set_child(self.config_popover_box)
+        self.config_menu_button.set_popover(self.config_popover)
+        self.header_bar.pack_end(self.config_menu_button)
 
     def _connect_signals(self) -> None:
         self.toolbar_view.undo_button.connect("clicked", lambda _: self.controller.undo())
@@ -111,8 +135,9 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         trash_panel.trash_count_spin.connect("value-changed", self._on_trash_count_changed)
         trash_panel.trash_distance_spin.connect("value-changed", self._on_trash_distance_changed)
 
-        self.sidebar_view.save_config_button.connect("clicked", self._on_save_config_clicked)
-        self.sidebar_view.load_config_button.connect("clicked", self._on_load_config_clicked)
+        self.help_button.connect("clicked", self._on_help_clicked)
+        self.config_save_button.connect("clicked", self._on_save_config_clicked)
+        self.config_load_button.connect("clicked", self._on_load_config_clicked)
         self.sidebar_view.generate_button.connect("clicked", self._on_generate_clicked)
 
     def focus_canvas(self) -> None:
@@ -431,6 +456,53 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         dialog.connect("response", lambda dialog, _: dialog.destroy())
         dialog.show()
 
+    def _show_help_dialog(self) -> None:
+        localizer = get_localizer()
+        dialog = Gtk.Dialog(transient_for=self, modal=True, title=localizer.text("window.help_dialog_title"))
+        dialog.set_default_size(780, 520)
+        dialog.add_button(localizer.text("window.close_button"), Gtk.ResponseType.CLOSE)
+        dialog.connect("response", lambda dialog, _: dialog.destroy())
+
+        content_area = dialog.get_content_area()
+        content_area.set_margin_top(self.config.ui.sidebar_margin)
+        content_area.set_margin_bottom(self.config.ui.sidebar_margin)
+        content_area.set_margin_start(self.config.ui.sidebar_margin)
+        content_area.set_margin_end(self.config.ui.sidebar_margin)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_vexpand(True)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        content_area.append(scroller)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=self.config.ui.row_spacing)
+        content.set_margin_top(self.config.ui.row_spacing)
+        content.set_margin_bottom(self.config.ui.row_spacing)
+        content.set_margin_start(self.config.ui.row_spacing)
+        content.set_margin_end(self.config.ui.row_spacing)
+        scroller.set_child(content)
+
+        intro_label = Gtk.Label(label=localizer.text("window.help_intro"), xalign=0.0)
+        intro_label.set_wrap(True)
+        content.append(intro_label)
+
+        sections = (
+            ("window.help_tools_title", "window.help_tools_body"),
+            ("window.help_selection_title", "window.help_selection_body"),
+            ("window.help_panning_title", "window.help_panning_body"),
+            ("window.help_polygon_title", "window.help_polygon_body"),
+            ("window.help_function_title", "window.help_function_body"),
+        )
+        for title_key, body_key in sections:
+            title_label = Gtk.Label(label=localizer.text(title_key), xalign=0.0)
+            title_label.add_css_class("panel-title")
+            content.append(title_label)
+
+            body_label = Gtk.Label(label=localizer.text(body_key), xalign=0.0)
+            body_label.set_wrap(True)
+            content.append(body_label)
+
+        dialog.show()
+
     def show_startup_config_issues(self) -> None:
         if not self._startup_config_issues:
             return
@@ -461,6 +533,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         dialog.show()
 
     def _on_save_config_clicked(self, button: Gtk.Button) -> None:
+        self.config_popover.popdown()
         self.controller.finalize_history_transaction()
         localizer = get_localizer()
         dialog = Gtk.FileChooserNative.new(
@@ -480,6 +553,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         dialog.show()
 
     def _on_load_config_clicked(self, button: Gtk.Button) -> None:
+        self.config_popover.popdown()
         self.controller.finalize_history_transaction()
         localizer = get_localizer()
         dialog = Gtk.FileChooserNative.new(
@@ -493,6 +567,9 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self._configure_open_dialog(dialog, self.controller.last_config_save_path)
         dialog.connect("response", self._on_load_config_response)
         dialog.show()
+
+    def _on_help_clicked(self, button: Gtk.Button) -> None:
+        self._show_help_dialog()
 
     def _configure_save_dialog(
         self,

@@ -188,11 +188,6 @@ class ClusterPanelView(PanelView):
         self.selection_size_hint.add_css_class("dim-label")
         self.append(self.selection_size_hint)
 
-        self.interaction_hint = Gtk.Label(label=config.text.shape_interaction_hint, xalign=0.0)
-        self.interaction_hint.set_wrap(True)
-        self.interaction_hint.add_css_class("dim-label")
-        self.append(self.interaction_hint)
-
     def apply(self, view_model: ClusterPanelViewModel) -> None:
         placement = view_model.placement
         selection = view_model.selection

@@ -63,11 +63,34 @@ class EditorControllerTests(unittest.TestCase):
 
         self.assertFalse(view_model.cluster_panel.selection.show_shape_selector)
         self.assertEqual(view_model.cluster_panel.selection.info_text, "No cluster selected.")
+        self.assertEqual(view_model.status.text, "")
+        self.assertEqual(view_model.status.kind, "neutral")
         self.assertFalse(view_model.toolbar.snap_to_integer_grid)
         self.assertEqual(
             view_model.toolbar.active_tool_description,
             self.controller.config.text.select_tool_description,
         )
+
+    def test_cluster_required_validation_stays_silent_when_no_clusters(self) -> None:
+        self.controller.state.total_cluster_stars = 50
+
+        view_model = self.controller.build_window_view_model()
+
+        self.assertFalse(view_model.generate_enabled)
+        self.assertEqual(view_model.status.text, "")
+        self.assertEqual(view_model.status.kind, "neutral")
+
+    def test_non_idle_validation_error_is_visible(self) -> None:
+        self.controller.state.clusters = [
+            make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=0.0),
+        ]
+        self.controller.state.total_cluster_stars = 25
+
+        view_model = self.controller.build_window_view_model()
+
+        self.assertFalse(view_model.generate_enabled)
+        self.assertEqual(view_model.status.kind, "error")
+        self.assertIn("radius", view_model.status.text.lower())
 
     def test_delete_selected_clusters_syncs_manual_total(self) -> None:
         self.controller.state = AppState(

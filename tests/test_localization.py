@@ -54,6 +54,7 @@ class LocalizationTests(unittest.TestCase):
 
         self.assertIn("Для звезд в кластерах нужен хотя бы один кластер.", validate_state(state))
         self.assertEqual(get_localizer().text("error.polygon_simple"), "Полигон должен быть простым и не самопересекающимся.")
+        self.assertEqual(get_localizer().text("window.help_function_title"), "Инструмент функции")
 
 
 if __name__ == "__main__":

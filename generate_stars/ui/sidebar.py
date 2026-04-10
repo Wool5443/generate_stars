@@ -61,14 +61,11 @@ class SidebarView(Gtk.Box):
         self.generate_button = Gtk.Button(label=localizer.text("ui.generate"))
         self.generate_button.add_css_class("suggested-action")
         self.generate_button.add_css_class("generate-button")
-        self.save_config_button = Gtk.Button(label=localizer.text("ui.save_configuration"))
-        self.load_config_button = Gtk.Button(label=localizer.text("ui.load_configuration"))
-        self.footer.append(self.save_config_button)
-        self.footer.append(self.load_config_button)
         self.footer.append(self.generate_button)
 
         self.status_label = Gtk.Label(xalign=0.0)
         self.status_label.set_wrap(True)
+        self.status_label.set_visible(False)
         self.footer.append(self.status_label)
 
     def apply(self, view_model: WindowViewModel) -> None:
@@ -78,10 +75,13 @@ class SidebarView(Gtk.Box):
         self.trash_panel.apply(view_model.trash_panel)
 
         self.generate_button.set_sensitive(view_model.generate_enabled)
-        self.status_label.set_text(view_model.status.text)
+        status_text = view_model.status.text.strip()
+        show_status = bool(status_text) and view_model.status.kind in {"error", "success"}
+        self.status_label.set_text(status_text if show_status else "")
+        self.status_label.set_visible(show_status)
         self.status_label.remove_css_class("status-error")
         self.status_label.remove_css_class("status-success")
-        if view_model.status.kind == "error":
+        if show_status and view_model.status.kind == "error":
             self.status_label.add_css_class("status-error")
-        elif view_model.status.kind == "success":
+        elif show_status and view_model.status.kind == "success":
             self.status_label.add_css_class("status-success")

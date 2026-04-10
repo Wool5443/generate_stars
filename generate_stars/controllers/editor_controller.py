@@ -54,7 +54,7 @@ class EditorController:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.state = AppState()
-        self.session = EditorSessionState(status_text=config.text.ready_status)
+        self.session = EditorSessionState(status_text="")
         self._history = HistoryManager(limit=100)
         self._last_save_path = load_last_save_path()
         self._last_config_save_path = load_last_config_save_path()
@@ -104,7 +104,7 @@ class EditorController:
 
     def clear_status(self, *, notify: bool = False) -> None:
         if self.session.status_kind != "error":
-            self.session.status_text = self.config.text.ready_status
+            self.session.status_text = ""
             self.session.status_kind = "neutral"
         if notify:
             self._notify()
@@ -986,13 +986,13 @@ class EditorController:
         if errors:
             generate_enabled = False
             if not self.state.clusters and errors[0] == localizer.text("error.cluster_required"):
-                status_text = self.config.text.shape_interaction_hint
+                status_text = ""
                 status_kind = "neutral"
             else:
                 status_text = errors[0]
                 status_kind = "error"
         elif status_kind == "error":
-            status_text = self.config.text.ready_status
+            status_text = ""
             status_kind = "neutral"
 
         return generate_enabled, StatusViewModel(text=status_text, kind=status_kind)
