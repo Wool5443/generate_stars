@@ -4,12 +4,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
+from ..cluster_configuration import ClusterConfigurationError, load_cluster_configuration, save_cluster_configuration
 from ..config import AppConfig
 from ..generator import GenerationError, even_counts, format_points_for_export, generate_star_field, validate_cluster_size, validate_state
 from ..history import HistoryManager
 from ..localization import get_localizer
 from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind
-from ..preferences import load_last_save_path, save_last_save_path
+from ..preferences import (
+    load_last_config_save_path,
+    load_last_save_path,
+    save_last_config_save_path,
+    save_last_save_path,
+)
 from ..shapes import (
     function_size_from_parameters,
     get_shape,
@@ -51,6 +57,7 @@ class EditorController:
         self.session = EditorSessionState(status_text=config.text.ready_status)
         self._history = HistoryManager(limit=100)
         self._last_save_path = load_last_save_path()
+        self._last_config_save_path = load_last_config_save_path()
         self._continuous_history_source: object | None = None
         self._change_listener: Callable[[], None] | None = None
         self._refresh_function_size(self.state.placement_function_size)
@@ -62,6 +69,10 @@ class EditorController:
     @property
     def last_save_path(self) -> Path | None:
         return self._last_save_path
+
+    @property
+    def last_config_save_path(self) -> Path | None:
+        return self._last_config_save_path
 
     @property
     def can_undo(self) -> bool:
@@ -572,7 +583,10 @@ class EditorController:
             encoding="utf-8",
         )
         self._last_save_path = output_path
-        save_last_save_path(output_path)
+        try:
+            save_last_save_path(output_path)
+        except OSError:
+            pass
         self.session.status_text = localizer.text(
             "status.saved",
             count=len(generated.stars),
@@ -581,6 +595,53 @@ class EditorController:
         self.session.status_kind = "success"
         self._notify()
         return len(generated.stars)
+
+    def export_cluster_configuration_to_path(self, output_path: Path) -> None:
+        localizer = get_localizer()
+        save_cluster_configuration(self.state, output_path)
+        self._last_config_save_path = output_path
+        try:
+            save_last_config_save_path(output_path)
+        except OSError:
+            pass
+        self.session.status_text = localizer.text(
+            "status.configuration_saved",
+            filename=output_path.name,
+        )
+        self.session.status_kind = "success"
+        self._notify()
+
+    def import_cluster_configuration_from_path(self, input_path: Path) -> int:
+        localizer = get_localizer()
+        try:
+            loaded_clusters = load_cluster_configuration(input_path)
+        except ClusterConfigurationError as exc:
+            raise GenerationError(str(exc)) from exc
+
+        def mutate() -> None:
+            self.state.clusters = []
+            self.state.selected_cluster_ids = []
+            self.state.next_cluster_id = 1
+            for loaded_cluster in loaded_clusters:
+                cluster = loaded_cluster.copy()
+                cluster.cluster_id = self.state.next_cluster_id
+                self.state.next_cluster_id += 1
+                self.state.clusters.append(cluster)
+
+        self._run_immediate_edit(mutate)
+        self._last_config_save_path = input_path
+        try:
+            save_last_config_save_path(input_path)
+        except OSError:
+            pass
+        self.session.status_text = localizer.text(
+            "status.configuration_loaded",
+            count=len(loaded_clusters),
+            filename=input_path.name,
+        )
+        self.session.status_kind = "success"
+        self._notify()
+        return len(loaded_clusters)
 
     def _sync_total_stars_for_manual_mode(self) -> None:
         if self.state.distribution_mode is not DistributionMode.MANUAL:

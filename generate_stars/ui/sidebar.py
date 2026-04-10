@@ -61,6 +61,10 @@ class SidebarView(Gtk.Box):
         self.generate_button = Gtk.Button(label=localizer.text("ui.generate"))
         self.generate_button.add_css_class("suggested-action")
         self.generate_button.add_css_class("generate-button")
+        self.save_config_button = Gtk.Button(label=localizer.text("ui.save_configuration"))
+        self.load_config_button = Gtk.Button(label=localizer.text("ui.load_configuration"))
+        self.footer.append(self.save_config_button)
+        self.footer.append(self.load_config_button)
         self.footer.append(self.generate_button)
 
         self.status_label = Gtk.Label(xalign=0.0)

@@ -15,6 +15,7 @@ DEFAULT_CONFIG_RESOURCE = "default_config.toml"
 PREFERENCES_DIR_NAME = "generate_stars"
 PREFERENCES_FILENAME = "settings.json"
 LAST_SAVE_PATH_KEY = "last_save_path"
+LAST_CONFIG_SAVE_PATH_KEY = "last_config_save_path"
 
 
 @dataclass(frozen=True, slots=True)

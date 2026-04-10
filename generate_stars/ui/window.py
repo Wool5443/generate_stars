@@ -9,6 +9,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gio, GLib, Gtk
 
+from ..cluster_configuration import DEFAULT_CLUSTER_CONFIGURATION_FILENAME
 from ..config import AppConfig, ConfigIssue
 from ..controllers.editor_controller import EditorController
 from ..generator import GenerationError
@@ -110,6 +111,8 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         trash_panel.trash_count_spin.connect("value-changed", self._on_trash_count_changed)
         trash_panel.trash_distance_spin.connect("value-changed", self._on_trash_distance_changed)
 
+        self.sidebar_view.save_config_button.connect("clicked", self._on_save_config_clicked)
+        self.sidebar_view.load_config_button.connect("clicked", self._on_load_config_clicked)
         self.sidebar_view.generate_button.connect("clicked", self._on_generate_clicked)
 
     def focus_canvas(self) -> None:
@@ -449,26 +452,80 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             localizer.text("window.cancel_button"),
         )
         dialog.set_modal(True)
-        self._configure_save_dialog(dialog)
+        self._configure_save_dialog(
+            dialog,
+            self.controller.last_save_path,
+            self.config.defaults.default_save_filename,
+        )
         dialog.connect("response", self._on_save_response)
         dialog.show()
 
-    def _configure_save_dialog(self, dialog: Gtk.FileChooserNative) -> None:
-        default_path = self.controller.last_save_path
+    def _on_save_config_clicked(self, button: Gtk.Button) -> None:
+        self.controller.finalize_history_transaction()
+        localizer = get_localizer()
+        dialog = Gtk.FileChooserNative.new(
+            localizer.text("window.save_config_dialog_title"),
+            self,
+            Gtk.FileChooserAction.SAVE,
+            localizer.text("window.save_button"),
+            localizer.text("window.cancel_button"),
+        )
+        dialog.set_modal(True)
+        self._configure_save_dialog(
+            dialog,
+            self.controller.last_config_save_path,
+            DEFAULT_CLUSTER_CONFIGURATION_FILENAME,
+        )
+        dialog.connect("response", self._on_save_config_response)
+        dialog.show()
+
+    def _on_load_config_clicked(self, button: Gtk.Button) -> None:
+        self.controller.finalize_history_transaction()
+        localizer = get_localizer()
+        dialog = Gtk.FileChooserNative.new(
+            localizer.text("window.load_config_dialog_title"),
+            self,
+            Gtk.FileChooserAction.OPEN,
+            localizer.text("window.open_button"),
+            localizer.text("window.cancel_button"),
+        )
+        dialog.set_modal(True)
+        self._configure_open_dialog(dialog, self.controller.last_config_save_path)
+        dialog.connect("response", self._on_load_config_response)
+        dialog.show()
+
+    def _configure_save_dialog(
+        self,
+        dialog: Gtk.FileChooserNative,
+        default_path: Path | None,
+        fallback_filename: str,
+    ) -> None:
         if default_path is None:
-            dialog.set_current_name(self.config.defaults.default_save_filename)
+            dialog.set_current_name(fallback_filename)
             return
 
         if default_path.is_dir():
             folder = default_path
-            filename = self.config.defaults.default_save_filename
+            filename = fallback_filename
         else:
             folder = default_path.parent
             filename = default_path.name
 
         if folder.exists():
             dialog.set_current_folder(Gio.File.new_for_path(str(folder)))
-        dialog.set_current_name(filename or self.config.defaults.default_save_filename)
+        dialog.set_current_name(filename or fallback_filename)
+
+    def _configure_open_dialog(self, dialog: Gtk.FileChooserNative, default_path: Path | None) -> None:
+        if default_path is None:
+            return
+
+        if default_path.is_file() and default_path.exists():
+            dialog.set_file(Gio.File.new_for_path(str(default_path)))
+            return
+
+        folder = default_path if default_path.is_dir() else default_path.parent
+        if folder.exists():
+            dialog.set_current_folder(Gio.File.new_for_path(str(folder)))
 
     def _on_save_response(self, dialog: Gtk.FileChooserNative, response: int) -> None:
         try:
@@ -485,6 +542,46 @@ class StarClusterWindow(Gtk.ApplicationWindow):
                 output_path = output_path.with_suffix(".txt") if output_path.suffix else Path(f"{output_path}.txt")
 
             self.controller.export_to_path(output_path)
+        except (GenerationError, OSError) as exc:
+            self.controller.set_status(str(exc), "error")
+            self._show_error_dialog(str(exc))
+        finally:
+            dialog.destroy()
+
+    def _on_save_config_response(self, dialog: Gtk.FileChooserNative, response: int) -> None:
+        try:
+            if response != Gtk.ResponseType.ACCEPT:
+                self.controller.clear_status(notify=True)
+                return
+
+            file = dialog.get_file()
+            if file is None or file.get_path() is None:
+                raise GenerationError(get_localizer().text("window.choose_local_path"))
+
+            output_path = Path(file.get_path())
+            if output_path.suffix.lower() != ".json":
+                output_path = output_path.with_suffix(".json") if output_path.suffix else Path(f"{output_path}.json")
+
+            self.controller.export_cluster_configuration_to_path(output_path)
+        except (GenerationError, OSError) as exc:
+            self.controller.set_status(str(exc), "error")
+            self._show_error_dialog(str(exc))
+        finally:
+            dialog.destroy()
+
+    def _on_load_config_response(self, dialog: Gtk.FileChooserNative, response: int) -> None:
+        try:
+            if response != Gtk.ResponseType.ACCEPT:
+                self.controller.clear_status(notify=True)
+                return
+
+            file = dialog.get_file()
+            if file is None or file.get_path() is None:
+                raise GenerationError(get_localizer().text("window.choose_local_path"))
+
+            self.canvas.cancel_polygon_draft()
+            self.controller.import_cluster_configuration_from_path(Path(file.get_path()))
+            self.focus_canvas()
         except (GenerationError, OSError) as exc:
             self.controller.set_status(str(exc), "error")
             self._show_error_dialog(str(exc))

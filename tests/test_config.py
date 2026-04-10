@@ -22,7 +22,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.defaults.function_orientation, "y_of_x")
             self.assertEqual(config.defaults.function_range_start, -10.0)
             self.assertEqual(config.defaults.function_range_end, 10.0)
-            self.assertEqual(config.defaults.function_thickness, 4.0)
+            self.assertEqual(config.defaults.function_thickness, 0.1)
             self.assertFalse(config.defaults.star_parameter_enabled)
             self.assertEqual(config.defaults.star_parameter_name, "Value")
             self.assertEqual(config.defaults.star_parameter_min_value, 0.0)
