@@ -89,6 +89,9 @@ class ParameterPanelViewModel:
     function_body: str
     show_random_range: bool
     show_function_body: bool
+    show_function_preview: bool
+    function_preview_text: str
+    function_preview_is_error: bool
 
 
 @dataclass(frozen=True, slots=True)

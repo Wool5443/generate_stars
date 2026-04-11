@@ -383,6 +383,14 @@ def _build_parameter_function_evaluator(function_body: str) -> Callable[[], str]
     return evaluate
 
 
+def preview_parameter_function_result(function_body: str) -> tuple[str, bool]:
+    try:
+        evaluator = _build_parameter_function_evaluator(function_body)
+        return evaluator(), False
+    except GenerationError as exc:
+        return str(exc), True
+
+
 def generate_star_field(state: AppState, rng: random.Random | None = None) -> GeneratedField:
     errors = validate_state(state)
     if errors:

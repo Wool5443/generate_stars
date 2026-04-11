@@ -73,8 +73,10 @@ class EditorControllerTests(unittest.TestCase):
         self.assertEqual(view_model.parameter_panel.mode, StarParameterMode.RANDOM)
         self.assertTrue(view_model.parameter_panel.show_random_range)
         self.assertFalse(view_model.parameter_panel.show_function_body)
+        self.assertFalse(view_model.parameter_panel.show_function_preview)
 
     def test_parameter_mode_switches_view_model_fields(self) -> None:
+        self.controller.set_parameter_enabled(True)
         self.controller.set_parameter_mode(StarParameterMode.FUNCTION)
         self.controller.set_parameter_function_body('return "token"', object())
         view_model = self.controller.build_window_view_model()
@@ -83,6 +85,20 @@ class EditorControllerTests(unittest.TestCase):
         self.assertFalse(view_model.parameter_panel.show_random_range)
         self.assertTrue(view_model.parameter_panel.show_function_body)
         self.assertEqual(view_model.parameter_panel.function_body, 'return "token"')
+        self.assertTrue(view_model.parameter_panel.show_function_preview)
+        self.assertFalse(view_model.parameter_panel.function_preview_is_error)
+        self.assertEqual(view_model.parameter_panel.function_preview_text, "token")
+
+    def test_parameter_preview_shows_error_for_invalid_function(self) -> None:
+        self.controller.set_parameter_enabled(True)
+        self.controller.set_parameter_mode(StarParameterMode.FUNCTION)
+        self.controller.set_parameter_function_body("return (", object())
+
+        view_model = self.controller.build_window_view_model()
+
+        self.assertTrue(view_model.parameter_panel.show_function_preview)
+        self.assertTrue(view_model.parameter_panel.function_preview_is_error)
+        self.assertIn("invalid", view_model.parameter_panel.function_preview_text.lower())
 
     def test_cluster_required_validation_stays_silent_when_no_clusters(self) -> None:
         self.controller.state.total_cluster_stars = 50

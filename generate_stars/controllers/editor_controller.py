@@ -6,7 +6,15 @@ from typing import Callable, Sequence
 
 from ..cluster_configuration import ClusterConfigurationError, load_cluster_configuration, save_cluster_configuration
 from ..config import AppConfig
-from ..generator import GenerationError, even_counts, format_points_for_export, generate_star_field, validate_cluster_size, validate_state
+from ..generator import (
+    GenerationError,
+    even_counts,
+    format_points_for_export,
+    generate_star_field,
+    preview_parameter_function_result,
+    validate_cluster_size,
+    validate_state,
+)
 from ..history import HistoryManager
 from ..localization import get_localizer
 from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterMode
@@ -1008,6 +1016,7 @@ class EditorController:
 
     def build_window_view_model(self) -> WindowViewModel:
         generate_enabled, status = self._effective_status()
+        show_function_preview, function_preview_text, function_preview_is_error = self._parameter_function_preview()
         return WindowViewModel(
             toolbar=ToolbarViewModel(
                 active_tool=self.active_tool,
@@ -1027,6 +1036,9 @@ class EditorController:
                 function_body=self.state.star_parameter.function_body,
                 show_random_range=self.state.star_parameter.mode is StarParameterMode.RANDOM,
                 show_function_body=self.state.star_parameter.mode is StarParameterMode.FUNCTION,
+                show_function_preview=show_function_preview,
+                function_preview_text=function_preview_text,
+                function_preview_is_error=function_preview_is_error,
             ),
             trash_panel=TrashPanelViewModel(
                 count=self.state.trash_star_count,
@@ -1036,6 +1048,18 @@ class EditorController:
             status=status,
             generate_enabled=generate_enabled,
         )
+
+    def _parameter_function_preview(self) -> tuple[bool, str, bool]:
+        if not self.state.star_parameter.enabled:
+            return False, "", False
+        if self.state.star_parameter.mode is not StarParameterMode.FUNCTION:
+            return False, "", False
+
+        preview_text, is_error = preview_parameter_function_result(self.state.star_parameter.function_body)
+        if is_error:
+            return True, preview_text, True
+        localizer = get_localizer()
+        return True, localizer.text("ui.parameter_preview_value", value=preview_text), False
 
     def _tool_description(self, tool: CanvasTool) -> str:
         if tool is CanvasTool.SELECT:

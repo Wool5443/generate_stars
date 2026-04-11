@@ -77,6 +77,11 @@ class ParameterPanelView(PanelView):
         self.parameter_function_body_row.append(function_body_scroller)
         self.parameter_fields_box.append(self.parameter_function_body_row)
 
+        self.parameter_preview_label = Gtk.Label(xalign=0.0)
+        self.parameter_preview_label.set_wrap(True)
+        self.parameter_preview_row = self.build_row(localizer.text("ui.label.parameter_preview"), self.parameter_preview_label)
+        self.parameter_fields_box.append(self.parameter_preview_row)
+
     def apply(self, view_model: ParameterPanelViewModel) -> None:
         self.parameter_enabled_check.set_active(view_model.enabled)
         self.parameter_fields_box.set_sensitive(view_model.enabled)
@@ -88,6 +93,11 @@ class ParameterPanelView(PanelView):
         self.parameter_min_row.set_visible(view_model.show_random_range)
         self.parameter_max_row.set_visible(view_model.show_random_range)
         self.parameter_function_body_row.set_visible(view_model.show_function_body)
+        self.parameter_preview_row.set_visible(view_model.show_function_preview)
+        self.parameter_preview_label.set_text(view_model.function_preview_text)
+        self.parameter_preview_label.remove_css_class("status-error")
+        if view_model.function_preview_is_error:
+            self.parameter_preview_label.add_css_class("status-error")
         if self._buffer_text(self.parameter_function_body_buffer) != view_model.function_body:
             self.parameter_function_body_buffer.set_text(view_model.function_body)
 

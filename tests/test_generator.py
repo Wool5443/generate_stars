@@ -9,6 +9,7 @@ from generate_stars.generator import (
     allocate_cluster_counts,
     format_points_for_export,
     preview_cluster_counts,
+    preview_parameter_function_result,
     generate_ring_centers,
     generate_star_field,
     generate_trash_points,
@@ -112,6 +113,26 @@ class GeneratorTests(unittest.TestCase):
             ],
         )
         self.assertIsNone(preview_cluster_counts(state))
+
+    def test_preview_parameter_function_result_returns_value(self) -> None:
+        preview, is_error = preview_parameter_function_result('return "alpha"')
+        self.assertFalse(is_error)
+        self.assertEqual(preview, "alpha")
+
+    def test_preview_parameter_function_result_reports_invalid_body(self) -> None:
+        preview, is_error = preview_parameter_function_result("return (")
+        self.assertTrue(is_error)
+        self.assertIn("invalid", preview.lower())
+
+    def test_preview_parameter_function_result_reports_runtime_error(self) -> None:
+        preview, is_error = preview_parameter_function_result('raise RuntimeError("boom")')
+        self.assertTrue(is_error)
+        self.assertIn("failed during generation", preview)
+
+    def test_preview_parameter_function_result_reports_return_type_error(self) -> None:
+        preview, is_error = preview_parameter_function_result("return 123")
+        self.assertTrue(is_error)
+        self.assertIn("must return string", preview)
 
     def test_deviation_distribution_preserves_total(self) -> None:
         rng = random.Random(11)
