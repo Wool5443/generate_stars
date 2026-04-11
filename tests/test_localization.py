@@ -56,7 +56,7 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(get_localizer().text("error.polygon_simple"), "Полигон должен быть простым и не самопересекающимся.")
         self.assertEqual(get_localizer().text("window.help_function_title"), "Инструмент функции")
         self.assertEqual(get_localizer().text("ui.option.parameter_function"), "Функция")
-        self.assertEqual(get_localizer().text("ui.label.parameter_preview"), "Предпросмотр")
+        self.assertEqual(get_localizer().text("ui.label.parameter_preview"), "Предпросмотр:")
 
 
 if __name__ == "__main__":

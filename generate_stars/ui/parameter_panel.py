@@ -101,7 +101,12 @@ class ParameterPanelView(PanelView):
 
         self.parameter_preview_label = Gtk.Label(xalign=0.0)
         self.parameter_preview_label.set_wrap(True)
-        self.parameter_preview_row = self.build_row(localizer.text("ui.label.parameter_preview"), self.parameter_preview_label)
+        self.parameter_preview_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=config.ui.row_spacing)
+        preview_title = Gtk.Label(label=localizer.text("ui.label.parameter_preview"), xalign=0.0)
+        preview_title.set_hexpand(False)
+        self.parameter_preview_label.set_hexpand(True)
+        self.parameter_preview_row.append(preview_title)
+        self.parameter_preview_row.append(self.parameter_preview_label)
         self.parameter_function_editor_content.append(self.parameter_preview_row)
         self.parameter_function_editor_button.connect("clicked", self._on_open_function_editor)
 
