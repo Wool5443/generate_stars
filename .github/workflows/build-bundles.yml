@@ -35,7 +35,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: generate-stars-linux
-          path: dist/generate-stars-linux-*.tar.gz
+          path: dist/generate-stars-linux-*.tar.xz
 
   windows:
     name: Windows Bundle

@@ -31,7 +31,7 @@ python scripts/build_bundle.py --target windows
 
 Generated archives are written to `dist/`:
 
-- `generate-stars-linux-<arch>.tar.gz`
+- `generate-stars-linux-<arch>.tar.xz`
 - `generate-stars-windows-<arch>.zip`
 
 The checked-in GitHub Actions workflow at `.github/workflows/build-bundles.yml` builds both artifacts on native Linux

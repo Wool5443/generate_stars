@@ -51,7 +51,7 @@ def create_archive(target: str) -> Path:
         archive_path = Path(shutil.make_archive(str(archive_stem), "zip", root_dir=DIST_DIR, base_dir=BUNDLE_DIR.name))
     else:
         archive_path = Path(
-            shutil.make_archive(str(archive_stem), "gztar", root_dir=DIST_DIR, base_dir=BUNDLE_DIR.name)
+            shutil.make_archive(str(archive_stem), "xztar", root_dir=DIST_DIR, base_dir=BUNDLE_DIR.name)
         )
     return archive_path
 

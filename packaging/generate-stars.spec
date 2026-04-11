@@ -27,6 +27,10 @@ a = Analysis(
                 "Gtk": "4.0",
                 "Gdk": "4.0",
             },
+            "languages": [
+                "en",
+                "ru",
+            ],
             "icons": [
                 "Adwaita",
             ],
@@ -36,9 +40,22 @@ a = Analysis(
         },
     },
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "tkinter",
+        "unittest",
+        "pydoc",
+        "distutils",
+        "setuptools",
+        "ensurepip",
+        "idlelib",
+        "turtle",
+        "matplotlib",
+        "numpy",
+        "scipy",
+        "pandas",
+    ],
     noarchive=False,
-    optimize=0,
+    optimize=2,
 )
 pyz = PYZ(a.pure)
 
@@ -50,7 +67,7 @@ exe = EXE(
     name="generate-stars",
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,
     upx=True,
     console=False,
     disable_windowed_traceback=False,
@@ -64,7 +81,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=False,
+    strip=True,
     upx=True,
     upx_exclude=[],
     name="generate-stars",
