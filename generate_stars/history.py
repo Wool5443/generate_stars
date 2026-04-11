@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from .models import (
     AppState,
+    CircleSize,
     ClusterInstance,
     ClusterSize,
     DistributionMode,
     FunctionOrientation,
+    FunctionSize,
+    FunctionStarParameterValue,
     Point,
+    PolygonSize,
+    RandomStarParameterValue,
+    RectangleSize,
     ShapeKind,
     StarParameterConfig,
-    StarParameterMode,
+    StarParameterValue,
 )
 
 
@@ -28,93 +35,178 @@ class PointSnapshot:
         return Point(self.x, self.y)
 
 
+class ClusterSizeSnapshot(ABC):
+    @property
+    @abstractmethod
+    def shape_kind(self) -> ShapeKind:
+        raise NotImplementedError
+
+    @abstractmethod
+    def to_model(self) -> ClusterSize:
+        raise NotImplementedError
+
+    @staticmethod
+    def from_model(size: ClusterSize) -> "ClusterSizeSnapshot":
+        if isinstance(size, CircleSize):
+            return CircleSizeSnapshot(radius=size.radius)
+        if isinstance(size, RectangleSize):
+            return RectangleSizeSnapshot(width=size.width, height=size.height)
+        if isinstance(size, PolygonSize):
+            return PolygonSizeSnapshot(
+                vertices_local=tuple(PointSnapshot.from_model(vertex) for vertex in size.vertices_local),
+                polygon_scale=size.polygon_scale,
+            )
+        if isinstance(size, FunctionSize):
+            return FunctionSizeSnapshot(
+                function_expression=size.function_expression,
+                function_orientation=size.function_orientation,
+                function_range_start=size.function_range_start,
+                function_range_end=size.function_range_end,
+                function_thickness=size.function_thickness,
+                vertices_local=tuple(PointSnapshot.from_model(vertex) for vertex in size.vertices_local),
+            )
+        raise TypeError("Unsupported cluster size type.")
+
+
 @dataclass(frozen=True, slots=True)
-class ClusterSizeSnapshot:
+class CircleSizeSnapshot(ClusterSizeSnapshot):
     radius: float
+
+    @property
+    def shape_kind(self) -> ShapeKind:
+        return ShapeKind.CIRCLE
+
+    def to_model(self) -> CircleSize:
+        return CircleSize(radius=self.radius)
+
+
+@dataclass(frozen=True, slots=True)
+class RectangleSizeSnapshot(ClusterSizeSnapshot):
     width: float
     height: float
-    polygon_scale: float
+
+    @property
+    def shape_kind(self) -> ShapeKind:
+        return ShapeKind.RECTANGLE
+
+    def to_model(self) -> RectangleSize:
+        return RectangleSize(width=self.width, height=self.height)
+
+
+@dataclass(frozen=True, slots=True)
+class PolygonSizeSnapshot(ClusterSizeSnapshot):
     vertices_local: tuple[PointSnapshot, ...]
+    polygon_scale: float
+
+    @property
+    def shape_kind(self) -> ShapeKind:
+        return ShapeKind.POLYGON
+
+    def to_model(self) -> PolygonSize:
+        return PolygonSize(
+            vertices_local=[vertex.to_model() for vertex in self.vertices_local],
+            polygon_scale=self.polygon_scale,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FunctionSizeSnapshot(ClusterSizeSnapshot):
     function_expression: str
     function_orientation: FunctionOrientation
     function_range_start: float
     function_range_end: float
     function_thickness: float
+    vertices_local: tuple[PointSnapshot, ...]
 
-    @classmethod
-    def from_model(cls, size: ClusterSize) -> "ClusterSizeSnapshot":
-        return cls(
-            radius=size.radius,
-            width=size.width,
-            height=size.height,
-            polygon_scale=size.polygon_scale,
-            vertices_local=tuple(PointSnapshot.from_model(vertex) for vertex in size.vertices_local),
-            function_expression=size.function_expression,
-            function_orientation=size.function_orientation,
-            function_range_start=size.function_range_start,
-            function_range_end=size.function_range_end,
-            function_thickness=size.function_thickness,
-        )
+    @property
+    def shape_kind(self) -> ShapeKind:
+        return ShapeKind.FUNCTION
 
-    def to_model(self) -> ClusterSize:
-        return ClusterSize(
-            radius=self.radius,
-            width=self.width,
-            height=self.height,
-            polygon_scale=self.polygon_scale,
-            vertices_local=[vertex.to_model() for vertex in self.vertices_local],
+    def to_model(self) -> FunctionSize:
+        return FunctionSize(
             function_expression=self.function_expression,
             function_orientation=self.function_orientation,
             function_range_start=self.function_range_start,
             function_range_end=self.function_range_end,
             function_thickness=self.function_thickness,
+            vertices_local=[vertex.to_model() for vertex in self.vertices_local],
         )
+
+
+class StarParameterValueSnapshot(ABC):
+    @abstractmethod
+    def to_model(self) -> StarParameterValue:
+        raise NotImplementedError
+
+    @staticmethod
+    def from_model(value: StarParameterValue) -> "StarParameterValueSnapshot":
+        if isinstance(value, RandomStarParameterValue):
+            return RandomStarParameterValueSnapshot(
+                min_value=value.min_value,
+                max_value=value.max_value,
+            )
+        if isinstance(value, FunctionStarParameterValue):
+            return FunctionStarParameterValueSnapshot(function_body=value.function_body)
+        raise TypeError("Unsupported star parameter value type.")
+
+
+@dataclass(frozen=True, slots=True)
+class RandomStarParameterValueSnapshot(StarParameterValueSnapshot):
+    min_value: float
+    max_value: float
+
+    def to_model(self) -> RandomStarParameterValue:
+        return RandomStarParameterValue(
+            min_value=self.min_value,
+            max_value=self.max_value,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FunctionStarParameterValueSnapshot(StarParameterValueSnapshot):
+    function_body: str
+
+    def to_model(self) -> FunctionStarParameterValue:
+        return FunctionStarParameterValue(function_body=self.function_body)
 
 
 @dataclass(frozen=True, slots=True)
 class StarParameterSnapshot:
     enabled: bool
     name: str
-    min_value: float
-    max_value: float
-    mode: StarParameterMode
-    function_body: str
+    value: StarParameterValueSnapshot
 
     @classmethod
     def from_model(cls, parameter: StarParameterConfig) -> "StarParameterSnapshot":
         return cls(
             enabled=parameter.enabled,
             name=parameter.name,
-            min_value=parameter.min_value,
-            max_value=parameter.max_value,
-            mode=parameter.mode,
-            function_body=parameter.function_body,
+            value=StarParameterValueSnapshot.from_model(parameter.value),
         )
 
     def to_model(self) -> StarParameterConfig:
         return StarParameterConfig(
             enabled=self.enabled,
             name=self.name,
-            min_value=self.min_value,
-            max_value=self.max_value,
-            mode=self.mode,
-            function_body=self.function_body,
+            value=self.value.to_model(),
         )
 
 
 @dataclass(frozen=True, slots=True)
 class ClusterSnapshot:
     cluster_id: int
-    shape_kind: ShapeKind
     center: PointSnapshot
     size: ClusterSizeSnapshot
     manual_star_count: int
+
+    @property
+    def shape_kind(self) -> ShapeKind:
+        return self.size.shape_kind
 
     @classmethod
     def from_model(cls, cluster: ClusterInstance) -> "ClusterSnapshot":
         return cls(
             cluster_id=cluster.cluster_id,
-            shape_kind=cluster.shape_kind,
             center=PointSnapshot.from_model(cluster.center),
             size=ClusterSizeSnapshot.from_model(cluster.size),
             manual_star_count=cluster.manual_star_count,
@@ -123,7 +215,6 @@ class ClusterSnapshot:
     def to_model(self) -> ClusterInstance:
         return ClusterInstance(
             cluster_id=self.cluster_id,
-            shape_kind=self.shape_kind,
             center=self.center.to_model(),
             size=self.size.to_model(),
             manual_star_count=self.manual_star_count,
@@ -132,9 +223,9 @@ class ClusterSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class EditableStateSnapshot:
-    placement_circle_size: ClusterSizeSnapshot
-    placement_rectangle_size: ClusterSizeSnapshot
-    placement_function_size: ClusterSizeSnapshot
+    placement_circle_size: CircleSizeSnapshot
+    placement_rectangle_size: RectangleSizeSnapshot
+    placement_function_size: FunctionSizeSnapshot
     clusters: tuple[ClusterSnapshot, ...]
     selected_cluster_ids: tuple[int, ...]
     next_cluster_id: int

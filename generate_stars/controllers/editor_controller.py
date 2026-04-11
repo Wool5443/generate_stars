@@ -17,7 +17,19 @@ from ..generator import (
 )
 from ..history import HistoryManager
 from ..localization import get_localizer
-from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterMode
+from ..models import (
+    AppState,
+    CanvasTool,
+    CircleSize,
+    DistributionMode,
+    FunctionOrientation,
+    FunctionSize,
+    Point,
+    PolygonSize,
+    RectangleSize,
+    ShapeKind,
+    StarParameterMode,
+)
 from ..preferences import (
     load_last_config_save_path,
     load_last_save_path,
@@ -381,8 +393,6 @@ class EditorController:
     def set_placement_radius(self, value: float, source: object) -> None:
         self.ensure_continuous_history(source)
         self.state.placement_circle_size.radius = value
-        self.state.placement_circle_size.width = value * 2.0
-        self.state.placement_circle_size.height = value * 2.0
         self.clear_status()
         self._notify()
 
@@ -721,9 +731,13 @@ class EditorController:
             cluster.manual_star_count = count
 
     def _selected_function_clusters(self):
-        return [cluster for cluster in self.state.selected_clusters() if cluster.shape_kind is ShapeKind.FUNCTION]
+        return [
+            cluster
+            for cluster in self.state.selected_clusters()
+            if isinstance(cluster.size, FunctionSize)
+        ]
 
-    def _refresh_function_size(self, size: ClusterSize) -> None:
+    def _refresh_function_size(self, size: FunctionSize) -> None:
         fallback_vertices = size.vertices_local
         try:
             refreshed = function_size_from_parameters(
@@ -737,12 +751,9 @@ class EditorController:
         except ValueError:
             return
 
-        size.radius = refreshed.radius
-        size.width = refreshed.width
-        size.height = refreshed.height
         size.vertices_local = [Point(vertex.x, vertex.y) for vertex in refreshed.vertices_local]
 
-    def _function_editor_view_model(self, size: ClusterSize, *, visible: bool, show_expression: bool) -> FunctionEditorViewModel:
+    def _function_editor_view_model(self, size: FunctionSize, *, visible: bool, show_expression: bool) -> FunctionEditorViewModel:
         return FunctionEditorViewModel(
             visible=visible,
             show_expression=show_expression,
@@ -763,7 +774,7 @@ class EditorController:
             Point(-half_width, half_height),
         ]
 
-    def _convert_cluster_geometry(self, cluster, target_shape: ShapeKind) -> tuple[Point, ClusterSize]:
+    def _convert_cluster_geometry(self, cluster, target_shape: ShapeKind):
         current_center = Point(cluster.center.x, cluster.center.y)
         current_size = cluster.size
 
@@ -775,12 +786,16 @@ class EditorController:
 
         if target_shape is ShapeKind.POLYGON:
             if cluster.shape_kind is ShapeKind.CIRCLE:
+                if not isinstance(current_size, CircleSize):
+                    return current_center, current_size.copy()
                 span = max(current_size.radius * 2.0, self.config.limits.size_min)
                 return (
                     current_center,
                     polygon_size_from_local_vertices(self._rectangle_polygon_vertices(span, span)),
                 )
 
+            if not isinstance(current_size, RectangleSize):
+                return current_center, current_size.copy()
             width = max(current_size.width, self.config.limits.size_min)
             height = max(current_size.height, self.config.limits.size_min)
             return (
@@ -789,6 +804,8 @@ class EditorController:
             )
 
         if cluster.shape_kind is ShapeKind.POLYGON:
+            if not isinstance(current_size, PolygonSize):
+                return current_center, current_size.copy()
             bounds = polygon_local_bounds(current_size.vertices_local)
             width = max(bounds.max_x - bounds.min_x, self.config.limits.size_min)
             height = max(bounds.max_y - bounds.min_y, self.config.limits.size_min)
@@ -798,15 +815,19 @@ class EditorController:
             )
             if target_shape is ShapeKind.CIRCLE:
                 span = max(width, height)
-                return bounds_center, ClusterSize(radius=span / 2.0, width=span, height=span)
-            return bounds_center, ClusterSize(radius=max(width, height) / 2.0, width=width, height=height)
+                return bounds_center, CircleSize(radius=span / 2.0)
+            return bounds_center, RectangleSize(width=width, height=height)
 
         if cluster.shape_kind is ShapeKind.CIRCLE and target_shape is ShapeKind.RECTANGLE:
+            if not isinstance(current_size, CircleSize):
+                return current_center, current_size.copy()
             span = current_size.radius * 2.0
-            return current_center, ClusterSize(radius=span / 2.0, width=span, height=span)
+            return current_center, RectangleSize(width=span, height=span)
         if cluster.shape_kind is ShapeKind.RECTANGLE and target_shape is ShapeKind.CIRCLE:
+            if not isinstance(current_size, RectangleSize):
+                return current_center, current_size.copy()
             span = max(current_size.width, current_size.height)
-            return current_center, ClusterSize(radius=span / 2.0, width=span, height=span)
+            return current_center, CircleSize(radius=span / 2.0)
         return current_center, current_size.copy()
 
     def _apply_selection_shape_change(self, target_shape: ShapeKind) -> None:
@@ -814,33 +835,28 @@ class EditorController:
             if cluster.shape_kind is ShapeKind.FUNCTION:
                 continue
             cluster.center, cluster.size = self._convert_cluster_geometry(cluster, target_shape)
-            cluster.shape_kind = target_shape
 
     def _apply_selection_radius(self, radius: float) -> None:
         for cluster in self.state.selected_clusters():
-            if cluster.shape_kind is not ShapeKind.CIRCLE:
+            if not isinstance(cluster.size, CircleSize):
                 continue
             cluster.size.radius = radius
-            cluster.size.width = radius * 2.0
-            cluster.size.height = radius * 2.0
 
     def _apply_selection_width(self, width: float) -> None:
         for cluster in self.state.selected_clusters():
-            if cluster.shape_kind is not ShapeKind.RECTANGLE:
+            if not isinstance(cluster.size, RectangleSize):
                 continue
             cluster.size.width = width
-            cluster.size.radius = max(cluster.size.width, cluster.size.height) / 2.0
 
     def _apply_selection_height(self, height: float) -> None:
         for cluster in self.state.selected_clusters():
-            if cluster.shape_kind is not ShapeKind.RECTANGLE:
+            if not isinstance(cluster.size, RectangleSize):
                 continue
             cluster.size.height = height
-            cluster.size.radius = max(cluster.size.width, cluster.size.height) / 2.0
 
     def _apply_selection_polygon_scale(self, percent: float) -> None:
         for cluster in self.state.selected_clusters():
-            if cluster.shape_kind is not ShapeKind.POLYGON:
+            if not isinstance(cluster.size, PolygonSize):
                 continue
             current_scale = max(cluster.size.polygon_scale, self.config.limits.size_min)
             factor = percent / current_scale
@@ -919,7 +935,7 @@ class EditorController:
 
         selected = self.state.selected_clusters()
         selection_shape = self.state.selection_shape_kind()
-        reference_size = selected[0].size if selected else ClusterSize()
+        reference_size = selected[0].size if selected else self.state.placement_rectangle_size
         contains_function = any(cluster.shape_kind is ShapeKind.FUNCTION for cluster in selected)
 
         if not selected:
@@ -994,9 +1010,9 @@ class EditorController:
             show_height=selection_shape is ShapeKind.RECTANGLE,
             height=reference_size.height,
             show_polygon_scale=selection_shape is ShapeKind.POLYGON,
-            polygon_scale=reference_size.polygon_scale,
+            polygon_scale=reference_size.polygon_scale if isinstance(reference_size, PolygonSize) else 100.0,
             function_editor=self._function_editor_view_model(
-                reference_size,
+                reference_size if isinstance(reference_size, FunctionSize) else self.state.placement_function_size,
                 visible=show_function,
                 show_expression=show_function and len(selected) == 1,
             ),

@@ -5,11 +5,15 @@ import unittest
 from generate_stars.history import HistoryManager
 from generate_stars.models import (
     AppState,
+    CircleSize,
     ClusterInstance,
-    ClusterSize,
     DistributionMode,
+    FunctionStarParameterValue,
     FunctionOrientation,
     Point,
+    PolygonSize,
+    RandomStarParameterValue,
+    RectangleSize,
     ShapeKind,
     StarParameterConfig,
     StarParameterMode,
@@ -28,17 +32,19 @@ def make_cluster(
     vertices_local: list[Point] | None = None,
     manual_star_count: int = 0,
 ) -> ClusterInstance:
-    return ClusterInstance(
-        cluster_id=cluster_id,
-        shape_kind=shape_kind,
-        center=center,
-        size=ClusterSize(
-            radius=radius,
-            width=width,
-            height=height,
+    if shape_kind is ShapeKind.CIRCLE:
+        size = CircleSize(radius=radius)
+    elif shape_kind is ShapeKind.RECTANGLE:
+        size = RectangleSize(width=width, height=height)
+    else:
+        size = PolygonSize(
             polygon_scale=polygon_scale,
             vertices_local=[Point(vertex.x, vertex.y) for vertex in vertices_local or []],
-        ),
+        )
+    return ClusterInstance(
+        cluster_id=cluster_id,
+        center=center,
+        size=size,
         manual_star_count=manual_star_count,
     )
 
@@ -72,10 +78,7 @@ class HistoryTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Mass",
-                min_value=-2.0,
-                max_value=4.0,
-                mode=StarParameterMode.FUNCTION,
-                function_body='return "tag"',
+                value=FunctionStarParameterValue(function_body='return "tag"'),
             ),
             trash_star_count=10,
             trash_min_distance=8.0,
@@ -91,7 +94,7 @@ class HistoryTests(unittest.TestCase):
         snapshot = state.to_editable_snapshot()
 
         state.clusters[0].center.x = 99.0
-        state.clusters[1].size.width = 300.0
+        state.clusters[1].size.vertices_local[0].x = -200.0
         state.clusters[1].size.polygon_scale = 250.0
         state.selected_cluster_ids = []
         state.total_cluster_stars = 999
@@ -104,7 +107,7 @@ class HistoryTests(unittest.TestCase):
         state.apply_editable_snapshot(snapshot)
 
         self.assertEqual(state.clusters[0].center.x, 0.0)
-        self.assertEqual(state.clusters[1].size.width, 14.0)
+        self.assertEqual(state.clusters[1].size.width, 17.0)
         self.assertEqual(state.clusters[1].size.polygon_scale, 135.0)
         self.assertEqual(state.selected_cluster_ids, [2])
         self.assertEqual(state.total_cluster_stars, 12)

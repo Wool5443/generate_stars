@@ -17,12 +17,17 @@ from generate_stars.generator import (
 )
 from generate_stars.models import (
     AppState,
+    CircleSize,
     ClusterConfig,
     ClusterInstance,
-    ClusterSize,
     DistributionMode,
+    FunctionSize,
+    FunctionStarParameterValue,
     FunctionOrientation,
     Point,
+    PolygonSize,
+    RandomStarParameterValue,
+    RectangleSize,
     ShapeKind,
     StarParameterMode,
     StarParameterConfig,
@@ -55,16 +60,16 @@ def make_cluster(
             function_range_end,
             function_thickness,
         )
+    elif shape_kind is ShapeKind.CIRCLE:
+        size = CircleSize(radius=radius)
+    elif shape_kind is ShapeKind.RECTANGLE:
+        size = RectangleSize(width=width, height=height)
     else:
-        size = ClusterSize(
-            radius=radius,
-            width=width,
-            height=height,
+        size = PolygonSize(
             vertices_local=[Point(vertex.x, vertex.y) for vertex in vertices_local or []],
         )
     return ClusterInstance(
         cluster_id=cluster_id,
-        shape_kind=shape_kind,
         center=center,
         size=size,
         manual_star_count=manual_star_count,
@@ -73,10 +78,11 @@ def make_cluster(
 
 class GeneratorTests(unittest.TestCase):
     def test_cluster_size_defaults_are_ten(self) -> None:
-        size = ClusterSize()
-        self.assertEqual(size.radius, 10.0)
-        self.assertEqual(size.width, 10.0)
-        self.assertEqual(size.height, 10.0)
+        circle = CircleSize()
+        rectangle = RectangleSize()
+        self.assertEqual(circle.radius, 10.0)
+        self.assertEqual(rectangle.width, 10.0)
+        self.assertEqual(rectangle.height, 10.0)
 
     def test_equal_distribution_preserves_total(self) -> None:
         rng = random.Random(7)
@@ -151,7 +157,7 @@ class GeneratorTests(unittest.TestCase):
         rng = random.Random(13)
         circle = get_shape(ShapeKind.CIRCLE)
         center = Point(10.0, -5.0)
-        size = ClusterSize(radius=20.0)
+        size = CircleSize(radius=20.0)
         for _ in range(200):
             point = circle.sample_point(center, size, rng)
             self.assertLessEqual(math.hypot(point.x - center.x, point.y - center.y), size.radius + 1e-9)
@@ -160,7 +166,7 @@ class GeneratorTests(unittest.TestCase):
         rng = random.Random(17)
         rectangle = get_shape(ShapeKind.RECTANGLE)
         center = Point(-15.0, 30.0)
-        size = ClusterSize(width=60.0, height=40.0)
+        size = RectangleSize(width=60.0, height=40.0)
         for _ in range(200):
             point = rectangle.sample_point(center, size, rng)
             self.assertGreaterEqual(point.x, center.x - size.width / 2.0)
@@ -172,7 +178,7 @@ class GeneratorTests(unittest.TestCase):
         rng = random.Random(18)
         polygon = get_shape(ShapeKind.POLYGON)
         center = Point(25.0, -30.0)
-        size = ClusterSize(
+        size = PolygonSize(
             vertices_local=[
                 Point(-20.0, -10.0),
                 Point(10.0, -18.0),
@@ -223,9 +229,8 @@ class GeneratorTests(unittest.TestCase):
     def test_trash_points_respect_edge_distance(self) -> None:
         rng = random.Random(19)
         cluster = ClusterConfig(
-            shape_kind=ShapeKind.CIRCLE,
             center=Point(0.0, 0.0),
-            size=ClusterSize(radius=50.0),
+            size=CircleSize(radius=50.0),
         )
         points = generate_trash_points(
             cluster_configs=[cluster],
@@ -241,9 +246,8 @@ class GeneratorTests(unittest.TestCase):
     def test_trash_points_respect_polygon_edge_distance(self) -> None:
         rng = random.Random(20)
         cluster = ClusterConfig(
-            shape_kind=ShapeKind.POLYGON,
             center=Point(10.0, 5.0),
-            size=ClusterSize(
+            size=PolygonSize(
                 vertices_local=[
                     Point(-20.0, -10.0),
                     Point(5.0, -15.0),
@@ -266,7 +270,6 @@ class GeneratorTests(unittest.TestCase):
     def test_trash_points_respect_function_edge_distance(self) -> None:
         rng = random.Random(22)
         cluster = ClusterConfig(
-            shape_kind=ShapeKind.FUNCTION,
             center=Point(0.0, 0.0),
             size=function_size_from_parameters(
                 "0.5 * x",
@@ -310,9 +313,9 @@ class GeneratorTests(unittest.TestCase):
         centers = generate_ring_centers(
             ShapeKind.CIRCLE,
             [
-                ClusterSize(radius=20.0),
-                ClusterSize(radius=60.0),
-                ClusterSize(radius=40.0),
+                CircleSize(radius=20.0),
+                CircleSize(radius=60.0),
+                CircleSize(radius=40.0),
             ],
         )
         distances = [math.hypot(center.x, center.y) for center in centers]
@@ -322,11 +325,11 @@ class GeneratorTests(unittest.TestCase):
     def test_generate_ring_centers_changes_radius_for_equal_shared_sizes(self) -> None:
         small_centers = generate_ring_centers(
             ShapeKind.CIRCLE,
-            [ClusterSize(radius=20.0) for _ in range(3)],
+            [CircleSize(radius=20.0) for _ in range(3)],
         )
         large_centers = generate_ring_centers(
             ShapeKind.CIRCLE,
-            [ClusterSize(radius=60.0) for _ in range(3)],
+            [CircleSize(radius=60.0) for _ in range(3)],
         )
         small_distance = math.hypot(small_centers[0].x, small_centers[0].y)
         large_distance = math.hypot(large_centers[0].x, large_centers[0].y)
@@ -335,7 +338,7 @@ class GeneratorTests(unittest.TestCase):
     def test_generate_ring_centers_keeps_minimum_origin_clearance_of_five(self) -> None:
         centers = generate_ring_centers(
             ShapeKind.CIRCLE,
-            [ClusterSize(radius=10.0)],
+            [CircleSize(radius=10.0)],
         )
         distance = math.hypot(centers[0].x, centers[0].y)
         self.assertEqual(distance - 10.0, 5.0)
@@ -345,8 +348,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="   ",
-                min_value=0.0,
-                max_value=1.0,
+                value=RandomStarParameterValue(min_value=0.0, max_value=1.0),
             )
         )
         self.assertIn("Star parameter name cannot be empty.", validate_state(state))
@@ -356,8 +358,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Mass",
-                min_value=2.0,
-                max_value=1.0,
+                value=RandomStarParameterValue(min_value=2.0, max_value=1.0),
             )
         )
         self.assertIn("Star parameter max must be greater than or equal to min.", validate_state(state))
@@ -367,8 +368,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Tag",
-                mode=StarParameterMode.FUNCTION,
-                function_body="return (",
+                value=FunctionStarParameterValue(function_body="return ("),
             )
         )
         self.assertIn("Parameter function is invalid.", validate_state(state))
@@ -400,9 +400,8 @@ class GeneratorTests(unittest.TestCase):
             clusters=[
                 ClusterInstance(
                     cluster_id=1,
-                    shape_kind=ShapeKind.FUNCTION,
                     center=Point(0.0, 0.0),
-                    size=ClusterSize(
+                    size=FunctionSize(
                         function_expression="x",
                         function_orientation=FunctionOrientation.Y_OF_X,
                         function_range_start=5.0,
@@ -457,8 +456,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Mass",
-                min_value=-1.5,
-                max_value=2.5,
+                value=RandomStarParameterValue(min_value=-1.5, max_value=2.5),
             ),
             clusters=[
                 make_cluster(1, ShapeKind.CIRCLE, Point(-80.0, 0.0), radius=20.0),
@@ -483,8 +481,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Tag",
-                mode=StarParameterMode.FUNCTION,
-                function_body='return "fixed_tag"',
+                value=FunctionStarParameterValue(function_body='return "fixed_tag"'),
             ),
             clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=20.0)],
         )
@@ -502,8 +499,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Tag",
-                mode=StarParameterMode.FUNCTION,
-                function_body='import random\nreturn str(random.randint(1, 9))',
+                value=FunctionStarParameterValue(function_body='import random\nreturn str(random.randint(1, 9))'),
             ),
             clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0)],
         )
@@ -522,8 +518,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Tag",
-                mode=StarParameterMode.FUNCTION,
-                function_body="return 123",
+                value=FunctionStarParameterValue(function_body="return 123"),
             ),
             clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0)],
         )
@@ -539,8 +534,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Tag",
-                mode=StarParameterMode.FUNCTION,
-                function_body='return "bad token"',
+                value=FunctionStarParameterValue(function_body='return "bad token"'),
             ),
             clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0)],
         )
@@ -556,8 +550,7 @@ class GeneratorTests(unittest.TestCase):
             star_parameter=StarParameterConfig(
                 enabled=True,
                 name="Tag",
-                mode=StarParameterMode.FUNCTION,
-                function_body='raise RuntimeError("boom")',
+                value=FunctionStarParameterValue(function_body='raise RuntimeError("boom")'),
             ),
             clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0)],
         )

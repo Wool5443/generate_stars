@@ -11,7 +11,7 @@ import cairo
 
 from .config import get_app_config
 from .localization import get_localizer
-from .models import ClusterSize, FunctionOrientation, Point, ShapeKind
+from .models import CircleSize, ClusterSize, FunctionOrientation, FunctionSize, Point, PolygonSize, RectangleSize, ShapeKind
 
 POLYGON_EPSILON = 1e-6
 SAFE_FUNCTIONS = {
@@ -193,15 +193,9 @@ def polygon_world_vertices(center: Point, vertices_local: list[Point]) -> list[P
     ]
 
 
-def polygon_size_from_local_vertices(vertices_local: list[Point], polygon_scale: float = 100.0) -> ClusterSize:
+def polygon_size_from_local_vertices(vertices_local: list[Point], polygon_scale: float = 100.0) -> PolygonSize:
     normalized = normalize_polygon_vertices(vertices_local)
-    bounds = polygon_local_bounds(normalized)
-    width = max(0.0, bounds.max_x - bounds.min_x)
-    height = max(0.0, bounds.max_y - bounds.min_y)
-    return ClusterSize(
-        radius=max(width, height) / 2.0,
-        width=width,
-        height=height,
+    return PolygonSize(
         polygon_scale=polygon_scale,
         vertices_local=[Point(vertex.x, vertex.y) for vertex in normalized],
     )
@@ -210,7 +204,7 @@ def polygon_size_from_local_vertices(vertices_local: list[Point], polygon_scale:
 def polygon_geometry_from_world_vertices(
     vertices_world: list[Point],
     polygon_scale: float = 100.0,
-) -> tuple[Point, ClusterSize]:
+) -> tuple[Point, PolygonSize]:
     center, vertices_local = centered_polygon_vertices(vertices_world)
     return center, polygon_size_from_local_vertices(vertices_local, polygon_scale=polygon_scale)
 
@@ -222,7 +216,7 @@ def _function_sample_count(sample_count: int | None = None) -> int:
 
 
 def build_function_curve_local_points(
-    size: ClusterSize,
+    size: FunctionSize,
     sample_count: int | None = None,
 ) -> list[Point]:
     if size.function_range_end <= size.function_range_start:
@@ -248,7 +242,7 @@ def build_function_curve_local_points(
 
 
 def build_function_band_local_vertices(
-    size: ClusterSize,
+    size: FunctionSize,
     sample_count: int | None = None,
 ) -> list[Point]:
     curve_points = build_function_curve_local_points(size, sample_count=sample_count)
@@ -290,8 +284,8 @@ def function_size_from_parameters(
     thickness: float,
     sample_count: int | None = None,
     fallback_vertices_local: list[Point] | None = None,
-) -> ClusterSize:
-    draft = ClusterSize(
+) -> FunctionSize:
+    draft = FunctionSize(
         function_expression=expression,
         function_orientation=orientation,
         function_range_start=range_start,
@@ -300,14 +294,7 @@ def function_size_from_parameters(
         vertices_local=[Point(vertex.x, vertex.y) for vertex in fallback_vertices_local or []],
     )
     vertices_local = build_function_band_local_vertices(draft, sample_count=sample_count)
-    bounds = polygon_local_bounds(vertices_local)
-    width = max(bounds.max_x - bounds.min_x, 0.0)
-    height = max(bounds.max_y - bounds.min_y, 0.0)
-    return ClusterSize(
-        radius=max(width, height) / 2.0,
-        width=width,
-        height=height,
-        polygon_scale=100.0,
+    return FunctionSize(
         vertices_local=vertices_local,
         function_expression=expression,
         function_orientation=orientation,
@@ -317,7 +304,7 @@ def function_size_from_parameters(
     )
 
 
-def validate_function_cluster_size(size: ClusterSize) -> list[str]:
+def validate_function_cluster_size(size: FunctionSize) -> list[str]:
     localizer = get_localizer()
     try:
         build_function_band_local_vertices(size)
@@ -541,26 +528,35 @@ class CircleShape(ClusterShape):
     kind = ShapeKind.CIRCLE
     label = "Circle"
 
+    def _size(self, size: ClusterSize) -> CircleSize:
+        if not isinstance(size, CircleSize):
+            raise TypeError("CircleShape requires CircleSize.")
+        return size
+
     def draw_outline(self, context: cairo.Context, center: Point, size: ClusterSize) -> None:
-        context.arc(center.x, center.y, size.radius, 0.0, math.tau)
+        circle = self._size(size)
+        context.arc(center.x, center.y, circle.radius, 0.0, math.tau)
 
     def sample_point(self, center: Point, size: ClusterSize, rng: random.Random) -> Point:
+        circle = self._size(size)
         angle = rng.uniform(0.0, math.tau)
-        distance = size.radius * math.sqrt(rng.random())
+        distance = circle.radius * math.sqrt(rng.random())
         return Point(
             x=center.x + math.cos(angle) * distance,
             y=center.y + math.sin(angle) * distance,
         )
 
     def edge_distance(self, point: Point, center: Point, size: ClusterSize) -> float:
-        return math.hypot(point.x - center.x, point.y - center.y) - size.radius
+        circle = self._size(size)
+        return math.hypot(point.x - center.x, point.y - center.y) - circle.radius
 
     def bounding_box(self, center: Point, size: ClusterSize) -> BoundingBox:
+        circle = self._size(size)
         return BoundingBox(
-            min_x=center.x - size.radius,
-            min_y=center.y - size.radius,
-            max_x=center.x + size.radius,
-            max_y=center.y + size.radius,
+            min_x=center.x - circle.radius,
+            min_y=center.y - circle.radius,
+            max_x=center.x + circle.radius,
+            max_y=center.y + circle.radius,
         )
 
 
@@ -568,33 +564,42 @@ class RectangleShape(ClusterShape):
     kind = ShapeKind.RECTANGLE
     label = "Rectangle"
 
+    def _size(self, size: ClusterSize) -> RectangleSize:
+        if not isinstance(size, RectangleSize):
+            raise TypeError("RectangleShape requires RectangleSize.")
+        return size
+
     def draw_outline(self, context: cairo.Context, center: Point, size: ClusterSize) -> None:
+        rectangle = self._size(size)
         context.rectangle(
-            center.x - size.width / 2.0,
-            center.y - size.height / 2.0,
-            size.width,
-            size.height,
+            center.x - rectangle.width / 2.0,
+            center.y - rectangle.height / 2.0,
+            rectangle.width,
+            rectangle.height,
         )
 
     def sample_point(self, center: Point, size: ClusterSize, rng: random.Random) -> Point:
+        rectangle = self._size(size)
         return Point(
-            x=center.x + rng.uniform(-size.width / 2.0, size.width / 2.0),
-            y=center.y + rng.uniform(-size.height / 2.0, size.height / 2.0),
+            x=center.x + rng.uniform(-rectangle.width / 2.0, rectangle.width / 2.0),
+            y=center.y + rng.uniform(-rectangle.height / 2.0, rectangle.height / 2.0),
         )
 
     def edge_distance(self, point: Point, center: Point, size: ClusterSize) -> float:
-        dx = abs(point.x - center.x) - size.width / 2.0
-        dy = abs(point.y - center.y) - size.height / 2.0
+        rectangle = self._size(size)
+        dx = abs(point.x - center.x) - rectangle.width / 2.0
+        dy = abs(point.y - center.y) - rectangle.height / 2.0
         outside = math.hypot(max(dx, 0.0), max(dy, 0.0))
         inside = min(max(dx, dy), 0.0)
         return outside + inside
 
     def bounding_box(self, center: Point, size: ClusterSize) -> BoundingBox:
+        rectangle = self._size(size)
         return BoundingBox(
-            min_x=center.x - size.width / 2.0,
-            min_y=center.y - size.height / 2.0,
-            max_x=center.x + size.width / 2.0,
-            max_y=center.y + size.height / 2.0,
+            min_x=center.x - rectangle.width / 2.0,
+            min_y=center.y - rectangle.height / 2.0,
+            max_x=center.x + rectangle.width / 2.0,
+            max_y=center.y + rectangle.height / 2.0,
         )
 
 
@@ -602,8 +607,14 @@ class PolygonShape(ClusterShape):
     kind = ShapeKind.POLYGON
     label = "Polygon"
 
+    def _size(self, size: ClusterSize) -> PolygonSize:
+        if not isinstance(size, PolygonSize):
+            raise TypeError("PolygonShape requires PolygonSize.")
+        return size
+
     def _world_vertices(self, center: Point, size: ClusterSize) -> list[Point]:
-        return polygon_world_vertices(center, size.vertices_local)
+        polygon = self._size(size)
+        return polygon_world_vertices(center, polygon.vertices_local)
 
     def draw_outline(self, context: cairo.Context, center: Point, size: ClusterSize) -> None:
         vertices = self._world_vertices(center, size)
@@ -615,7 +626,8 @@ class PolygonShape(ClusterShape):
         context.close_path()
 
     def sample_point(self, center: Point, size: ClusterSize, rng: random.Random) -> Point:
-        triangles = triangulate_polygon(size.vertices_local)
+        polygon = self._size(size)
+        triangles = triangulate_polygon(polygon.vertices_local)
         if not triangles:
             return Point(center.x, center.y)
 
@@ -651,7 +663,8 @@ class PolygonShape(ClusterShape):
         return min_distance
 
     def bounding_box(self, center: Point, size: ClusterSize) -> BoundingBox:
-        local_bounds = polygon_local_bounds(size.vertices_local)
+        polygon = self._size(size)
+        local_bounds = polygon_local_bounds(polygon.vertices_local)
         return BoundingBox(
             min_x=center.x + local_bounds.min_x,
             min_y=center.y + local_bounds.min_y,
@@ -664,11 +677,17 @@ class FunctionShape(ClusterShape):
     kind = ShapeKind.FUNCTION
     label = "Function"
 
+    def _size(self, size: ClusterSize) -> FunctionSize:
+        if not isinstance(size, FunctionSize):
+            raise TypeError("FunctionShape requires FunctionSize.")
+        return size
+
     def _local_vertices(self, size: ClusterSize) -> list[Point]:
-        if size.vertices_local:
-            return normalize_polygon_vertices(size.vertices_local)
+        function = self._size(size)
+        if function.vertices_local:
+            return normalize_polygon_vertices(function.vertices_local)
         try:
-            return build_function_band_local_vertices(size)
+            return build_function_band_local_vertices(function)
         except FunctionDefinitionError:
             return []
 

@@ -8,11 +8,17 @@ from .generator import validate_cluster_size
 from .localization import get_localizer
 from .models import (
     AppState,
+    CircleSize,
     ClusterInstance,
     ClusterSize,
     DistributionMode,
     FunctionOrientation,
+    FunctionSize,
+    FunctionStarParameterValue,
     Point,
+    PolygonSize,
+    RandomStarParameterValue,
+    RectangleSize,
     ShapeKind,
     StarParameterConfig,
     StarParameterMode,
@@ -21,7 +27,7 @@ from .shapes import function_size_from_parameters
 
 
 FORMAT_NAME = "generate_stars_cluster_configuration"
-FORMAT_VERSION = 4
+FORMAT_VERSION = 3
 DEFAULT_CLUSTER_CONFIGURATION_FILENAME = "cluster_configuration.json"
 
 
@@ -32,9 +38,9 @@ class ClusterConfigurationError(RuntimeError):
 @dataclass(slots=True)
 class LoadedClusterConfiguration:
     clusters: list[ClusterInstance]
-    placement_circle_size: ClusterSize | None = None
-    placement_rectangle_size: ClusterSize | None = None
-    placement_function_size: ClusterSize | None = None
+    placement_circle_size: CircleSize | None = None
+    placement_rectangle_size: RectangleSize | None = None
+    placement_function_size: FunctionSize | None = None
     selected_cluster_ids: list[int] | None = None
     next_cluster_id: int | None = None
     total_cluster_stars: int | None = None
@@ -54,7 +60,22 @@ def _point_payload(point: Point) -> dict[str, float]:
 
 
 def _cluster_size_payload(size: ClusterSize, shape_kind: ShapeKind) -> dict[str, object]:
+    if shape_kind is ShapeKind.CIRCLE:
+        if not isinstance(size, CircleSize):
+            raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid"))
+        return {
+            "radius": size.radius,
+        }
+    if shape_kind is ShapeKind.RECTANGLE:
+        if not isinstance(size, RectangleSize):
+            raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid"))
+        return {
+            "width": size.width,
+            "height": size.height,
+        }
     if shape_kind is ShapeKind.FUNCTION:
+        if not isinstance(size, FunctionSize):
+            raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid"))
         return {
             "function_expression": size.function_expression,
             "function_orientation": size.function_orientation.value,
@@ -62,15 +83,12 @@ def _cluster_size_payload(size: ClusterSize, shape_kind: ShapeKind) -> dict[str,
             "function_range_end": size.function_range_end,
             "function_thickness": size.function_thickness,
         }
-    payload: dict[str, object] = {
-        "radius": size.radius,
-        "width": size.width,
-        "height": size.height,
+    if not isinstance(size, PolygonSize):
+        raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid"))
+    return {
+        "polygon_scale": size.polygon_scale,
+        "vertices_local": [_point_payload(vertex) for vertex in size.vertices_local],
     }
-    if shape_kind is ShapeKind.POLYGON:
-        payload["polygon_scale"] = size.polygon_scale
-        payload["vertices_local"] = [_point_payload(vertex) for vertex in size.vertices_local]
-    return payload
 
 
 def _cluster_payload(cluster: ClusterInstance) -> dict[str, object]:
@@ -99,10 +117,18 @@ def cluster_configuration_payload(state: AppState) -> dict[str, object]:
         "star_parameter": {
             "enabled": state.star_parameter.enabled,
             "name": state.star_parameter.name,
-            "min_value": state.star_parameter.min_value,
-            "max_value": state.star_parameter.max_value,
-            "mode": state.star_parameter.mode.value,
-            "function_body": state.star_parameter.function_body,
+            "value": (
+                {
+                    "mode": "random",
+                    "min_value": state.star_parameter.value.min_value,
+                    "max_value": state.star_parameter.value.max_value,
+                }
+                if isinstance(state.star_parameter.value, RandomStarParameterValue)
+                else {
+                    "mode": "function",
+                    "function_body": state.star_parameter.value.function_body,
+                }
+            ),
         },
         "trash_star_count": state.trash_star_count,
         "trash_min_distance": state.trash_min_distance,
@@ -219,7 +245,6 @@ def _cluster_from_payload(payload: object, *, index: int) -> ClusterInstance:
 
     return ClusterInstance(
         cluster_id=cluster_id,
-        shape_kind=shape_kind,
         center=center,
         size=size,
         manual_star_count=manual_star_count,
@@ -229,6 +254,29 @@ def _cluster_from_payload(payload: object, *, index: int) -> ClusterInstance:
 def _cluster_size_from_payload(payload: object, *, shape_kind: ShapeKind, index: int) -> ClusterSize:
     localizer = get_localizer()
     mapping = _require_mapping(payload, f"clusters[{index - 1}].size")
+
+    if shape_kind is ShapeKind.CIRCLE:
+        return CircleSize(
+            radius=_float_value(mapping.get("radius", 10.0)),
+        )
+
+    if shape_kind is ShapeKind.RECTANGLE:
+        return RectangleSize(
+            width=_float_value(mapping.get("width", 10.0)),
+            height=_float_value(mapping.get("height", 10.0)),
+        )
+
+    if shape_kind is ShapeKind.POLYGON:
+        vertices_payload = mapping.get("vertices_local", [])
+        if not isinstance(vertices_payload, list):
+            raise ClusterConfigurationError(localizer.text("error.configuration_invalid"))
+        return PolygonSize(
+            polygon_scale=_float_value(mapping.get("polygon_scale", 100.0)),
+            vertices_local=[
+                _point_from_payload(vertex, f"clusters[{index - 1}].size.vertices_local[{vertex_index}]")
+                for vertex_index, vertex in enumerate(vertices_payload)
+            ],
+        )
 
     orientation_value = mapping.get("function_orientation", FunctionOrientation.Y_OF_X.value)
     if not isinstance(orientation_value, str):
@@ -261,11 +309,7 @@ def _cluster_size_from_payload(payload: object, *, shape_kind: ShapeKind, index:
                 fallback_vertices_local=fallback_vertices or None,
             )
         except ValueError:
-            return ClusterSize(
-                radius=_float_value(mapping.get("radius", 10.0)),
-                width=_float_value(mapping.get("width", 10.0)),
-                height=_float_value(mapping.get("height", 10.0)),
-                polygon_scale=100.0,
+            return FunctionSize(
                 vertices_local=fallback_vertices,
                 function_expression=function_expression,
                 function_orientation=function_orientation,
@@ -274,28 +318,10 @@ def _cluster_size_from_payload(payload: object, *, shape_kind: ShapeKind, index:
                 function_thickness=function_thickness,
             )
 
-    vertices_payload = mapping.get("vertices_local", [])
-    if not isinstance(vertices_payload, list):
-        raise ClusterConfigurationError(localizer.text("error.configuration_invalid"))
-
-    return ClusterSize(
-        radius=_float_value(mapping.get("radius", 10.0)),
-        width=_float_value(mapping.get("width", 10.0)),
-        height=_float_value(mapping.get("height", 10.0)),
-        polygon_scale=_float_value(mapping.get("polygon_scale", 100.0)),
-        vertices_local=[
-            _point_from_payload(vertex, f"clusters[{index - 1}].size.vertices_local[{vertex_index}]")
-            for vertex_index, vertex in enumerate(vertices_payload)
-        ],
-        function_expression=function_expression,
-        function_orientation=function_orientation,
-        function_range_start=function_range_start,
-        function_range_end=function_range_end,
-        function_thickness=function_thickness,
-    )
+    raise ClusterConfigurationError(localizer.text("error.configuration_invalid"))
 
 
-def _optional_cluster_size(payload: object, *, shape_kind: ShapeKind) -> ClusterSize | None:
+def _optional_cluster_size(payload: object, *, shape_kind: ShapeKind):
     if payload is None:
         return None
     size = _cluster_size_from_payload(payload, shape_kind=shape_kind, index=1)
@@ -346,23 +372,43 @@ def _optional_star_parameter(value: object) -> StarParameterConfig | None:
     mapping = _require_mapping(value, "star_parameter")
     enabled = _bool_value(mapping.get("enabled"))
     name = _string_value(mapping.get("name"))
-    min_value = _float_value(mapping.get("min_value"))
-    max_value = _float_value(mapping.get("max_value"))
-    mode_raw = mapping.get("mode")
-    if not isinstance(mode_raw, str):
-        raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid"))
-    try:
-        mode = StarParameterMode(mode_raw)
-    except ValueError as exc:
-        raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid")) from exc
-    function_body = _string_value(mapping.get("function_body"))
+    if "value" in mapping:
+        value_payload = _require_mapping(mapping.get("value"), "star_parameter.value")
+        mode_raw = value_payload.get("mode")
+        if not isinstance(mode_raw, str):
+            raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid"))
+        if mode_raw == "random":
+            parameter_value = RandomStarParameterValue(
+                min_value=_float_value(value_payload.get("min_value")),
+                max_value=_float_value(value_payload.get("max_value")),
+            )
+        elif mode_raw == "function":
+            parameter_value = FunctionStarParameterValue(
+                function_body=_string_value(value_payload.get("function_body")),
+            )
+        else:
+            raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid"))
+    else:
+        mode_raw = mapping.get("mode")
+        if not isinstance(mode_raw, str):
+            raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid"))
+        try:
+            mode = StarParameterMode(mode_raw)
+        except ValueError as exc:
+            raise ClusterConfigurationError(get_localizer().text("error.configuration_invalid")) from exc
+        if mode is StarParameterMode.RANDOM:
+            parameter_value = RandomStarParameterValue(
+                min_value=_float_value(mapping.get("min_value")),
+                max_value=_float_value(mapping.get("max_value")),
+            )
+        else:
+            parameter_value = FunctionStarParameterValue(
+                function_body=_string_value(mapping.get("function_body")),
+            )
     return StarParameterConfig(
         enabled=enabled,
         name=name,
-        min_value=min_value,
-        max_value=max_value,
-        mode=mode,
-        function_body=function_body,
+        value=parameter_value,
     )
 
 

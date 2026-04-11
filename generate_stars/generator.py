@@ -11,11 +11,17 @@ from .config import AppConfig, get_app_config
 from .localization import get_localizer
 from .models import (
     AppState,
+    CircleSize,
     ClusterConfig,
     ClusterInstance,
     ClusterSize,
     DistributionMode,
+    FunctionSize,
+    FunctionStarParameterValue,
     Point,
+    PolygonSize,
+    RandomStarParameterValue,
+    RectangleSize,
     ShapeKind,
     StarParameterConfig,
     StarParameterMode,
@@ -66,19 +72,31 @@ def ensure_cluster_storage(state: AppState) -> None:
 def validate_cluster_size(shape_kind: ShapeKind, size: ClusterSize, label: str) -> list[str]:
     localizer = get_localizer()
     errors: list[str] = []
-    if shape_kind is ShapeKind.CIRCLE and size.radius <= 0.0:
-        errors.append(localizer.text("error.radius_positive", label=label))
+    if shape_kind is ShapeKind.CIRCLE:
+        if not isinstance(size, CircleSize):
+            errors.append(localizer.text("error.configuration_invalid"))
+        elif size.radius <= 0.0:
+            errors.append(localizer.text("error.radius_positive", label=label))
     if shape_kind is ShapeKind.RECTANGLE:
-        if size.width <= 0.0:
-            errors.append(localizer.text("error.width_positive", label=label))
-        if size.height <= 0.0:
-            errors.append(localizer.text("error.height_positive", label=label))
+        if not isinstance(size, RectangleSize):
+            errors.append(localizer.text("error.configuration_invalid"))
+        else:
+            if size.width <= 0.0:
+                errors.append(localizer.text("error.width_positive", label=label))
+            if size.height <= 0.0:
+                errors.append(localizer.text("error.height_positive", label=label))
     if shape_kind is ShapeKind.POLYGON:
-        for error in validate_polygon_vertices(size.vertices_local):
-            errors.append(f"{label}: {error}")
+        if not isinstance(size, PolygonSize):
+            errors.append(localizer.text("error.configuration_invalid"))
+        else:
+            for error in validate_polygon_vertices(size.vertices_local):
+                errors.append(f"{label}: {error}")
     if shape_kind is ShapeKind.FUNCTION:
-        for error in validate_function_cluster_size(size):
-            errors.append(f"{label}: {error}")
+        if not isinstance(size, FunctionSize):
+            errors.append(localizer.text("error.configuration_invalid"))
+        else:
+            for error in validate_function_cluster_size(size):
+                errors.append(f"{label}: {error}")
     return errors
 
 
@@ -133,13 +151,19 @@ def validate_state(state: AppState) -> list[str]:
     if state.star_parameter.enabled:
         if not state.star_parameter.name.strip():
             errors.append(localizer.text("error.parameter_name_empty"))
-        if state.star_parameter.mode is StarParameterMode.RANDOM and state.star_parameter.max_value < state.star_parameter.min_value:
-            errors.append(localizer.text("error.parameter_range_invalid"))
+        if state.star_parameter.mode is StarParameterMode.RANDOM:
+            if not isinstance(state.star_parameter.value, RandomStarParameterValue):
+                errors.append(localizer.text("error.configuration_invalid"))
+            elif state.star_parameter.value.max_value < state.star_parameter.value.min_value:
+                errors.append(localizer.text("error.parameter_range_invalid"))
         if state.star_parameter.mode is StarParameterMode.FUNCTION:
-            try:
-                compile_parameter_function(state.star_parameter.function_body)
-            except ParameterFunctionDefinitionError:
-                errors.append(localizer.text("error.parameter_function_invalid"))
+            if not isinstance(state.star_parameter.value, FunctionStarParameterValue):
+                errors.append(localizer.text("error.configuration_invalid"))
+            else:
+                try:
+                    compile_parameter_function(state.star_parameter.value.function_body)
+                except ParameterFunctionDefinitionError:
+                    errors.append(localizer.text("error.parameter_function_invalid"))
 
     if state.distribution_mode is DistributionMode.MANUAL:
         if any(cluster.manual_star_count < 0 for cluster in state.clusters):
@@ -160,7 +184,7 @@ def generate_ring_centers(
         return []
 
     config = config or get_app_config()
-    spans = [size.max_span(shape_kind) for size in sizes]
+    spans = [size.max_span() for size in sizes]
     step = math.tau / count
 
     centers: list[Point] = []

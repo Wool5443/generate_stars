@@ -7,7 +7,18 @@ from pathlib import Path
 
 from generate_stars.config import initialize_app_config
 from generate_stars.controllers.editor_controller import EditorController
-from generate_stars.models import AppState, ClusterInstance, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterMode
+from generate_stars.models import (
+    AppState,
+    CircleSize,
+    ClusterInstance,
+    DistributionMode,
+    FunctionOrientation,
+    Point,
+    PolygonSize,
+    RectangleSize,
+    ShapeKind,
+    StarParameterMode,
+)
 from generate_stars.shapes import function_size_from_parameters
 
 
@@ -36,17 +47,17 @@ def make_cluster(
             function_range_end,
             function_thickness,
         )
+    elif shape_kind is ShapeKind.CIRCLE:
+        size = CircleSize(radius=radius)
+    elif shape_kind is ShapeKind.RECTANGLE:
+        size = RectangleSize(width=width, height=height)
     else:
-        size = ClusterSize(
-            radius=radius,
-            width=width,
-            height=height,
+        size = PolygonSize(
             polygon_scale=polygon_scale,
             vertices_local=[Point(vertex.x, vertex.y) for vertex in vertices_local or []],
         )
     return ClusterInstance(
         cluster_id=cluster_id,
-        shape_kind=shape_kind,
         center=center,
         size=size,
         manual_star_count=manual_star_count,
@@ -356,8 +367,8 @@ class EditorControllerTests(unittest.TestCase):
             self.assertEqual(payload["trash_min_distance"], 4.5)
             self.assertEqual(payload["placement_circle_size"]["radius"], self.controller.state.placement_circle_size.radius)
             self.assertEqual(payload["placement_rectangle_size"]["width"], self.controller.state.placement_rectangle_size.width)
-            self.assertEqual(payload["star_parameter"]["mode"], "function")
-            self.assertEqual(payload["star_parameter"]["function_body"], 'return "tag"')
+            self.assertEqual(payload["star_parameter"]["value"]["mode"], "function")
+            self.assertEqual(payload["star_parameter"]["value"]["function_body"], 'return "tag"')
             self.assertNotIn("star_parameter_function_body", payload)
             self.assertEqual(self.controller.last_config_save_path, output_path)
 
