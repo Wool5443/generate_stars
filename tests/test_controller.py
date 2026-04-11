@@ -327,6 +327,8 @@ class EditorControllerTests(unittest.TestCase):
         self.controller.state.star_parameter.name = "Mass"
         self.controller.state.star_parameter.min_value = -1.5
         self.controller.state.star_parameter.max_value = 3.5
+        self.controller.state.star_parameter.mode = StarParameterMode.FUNCTION
+        self.controller.state.star_parameter.function_body = 'return "tag"'
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "cluster_config.json"
@@ -335,19 +337,29 @@ class EditorControllerTests(unittest.TestCase):
 
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["format"], "generate_stars_cluster_configuration")
-            self.assertEqual(payload["version"], 2)
-            self.assertEqual(sorted(payload.keys()), ["clusters", "format", "version"])
+            self.assertEqual(payload["version"], 4)
             self.assertEqual(payload["clusters"][0]["shape_kind"], "polygon")
             self.assertEqual(payload["clusters"][0]["manual_star_count"], 7)
             self.assertEqual(payload["clusters"][0]["size"]["polygon_scale"], 125.0)
             self.assertEqual(payload["clusters"][1]["shape_kind"], "function")
             self.assertEqual(payload["clusters"][1]["size"]["function_expression"], "0.5 * x")
             self.assertEqual(payload["clusters"][1]["size"]["function_orientation"], "y_of_x")
+            self.assertEqual(payload["clusters"][0]["cluster_id"], 1)
+            self.assertEqual(payload["clusters"][1]["cluster_id"], 2)
+            self.assertNotIn("vertices_local", payload["clusters"][1]["size"])
+            self.assertEqual(payload["selected_cluster_ids"], [2])
+            self.assertEqual(payload["next_cluster_id"], 3)
+            self.assertEqual(payload["total_cluster_stars"], 18)
+            self.assertEqual(payload["distribution_mode"], "manual")
+            self.assertEqual(payload["deviation_percent"], 12.5)
+            self.assertEqual(payload["trash_star_count"], 9)
+            self.assertEqual(payload["trash_min_distance"], 4.5)
+            self.assertEqual(payload["placement_circle_size"]["radius"], self.controller.state.placement_circle_size.radius)
+            self.assertEqual(payload["placement_rectangle_size"]["width"], self.controller.state.placement_rectangle_size.width)
+            self.assertEqual(payload["star_parameter"]["mode"], "function")
+            self.assertEqual(payload["star_parameter"]["function_body"], 'return "tag"')
+            self.assertNotIn("star_parameter_function_body", payload)
             self.assertEqual(self.controller.last_config_save_path, output_path)
-            self.assertNotIn("distribution_mode", payload)
-            self.assertNotIn("selected_cluster_ids", payload)
-            self.assertNotIn("total_cluster_stars", payload)
-            self.assertNotIn("star_parameter", payload)
 
     def test_import_cluster_configuration_replaces_clusters_and_preserves_global_settings(self) -> None:
         self.controller.state = AppState(
@@ -435,6 +447,142 @@ class EditorControllerTests(unittest.TestCase):
             self.assertTrue(self.controller.undo())
             self.assertEqual(len(self.controller.state.clusters), 1)
             self.assertEqual(self.controller.state.clusters[0].cluster_id, 10)
+
+    def test_import_cluster_configuration_applies_full_saved_state(self) -> None:
+        self.controller.state = AppState(
+            distribution_mode=DistributionMode.EQUAL,
+            clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(100.0, 200.0), radius=9.0)],
+            selected_cluster_ids=[1],
+            next_cluster_id=2,
+            total_cluster_stars=77,
+            deviation_percent=33.0,
+            trash_star_count=12,
+            trash_min_distance=5.5,
+        )
+        self.controller.state.star_parameter.enabled = False
+        self.controller.state.star_parameter.name = "Old"
+        self.controller.state.star_parameter.mode = StarParameterMode.RANDOM
+        self.controller.state.star_parameter.function_body = 'return "old"'
+        self.controller.state.placement_circle_size.radius = 42.0
+
+        payload = {
+            "format": "generate_stars_cluster_configuration",
+            "version": 3,
+            "placement_circle_size": {
+                "radius": 15.0,
+                "width": 30.0,
+                "height": 30.0,
+                "polygon_scale": 100.0,
+                "vertices_local": [],
+                "function_expression": "0",
+                "function_orientation": "y_of_x",
+                "function_range_start": -10.0,
+                "function_range_end": 10.0,
+                "function_thickness": 0.1,
+            },
+            "placement_rectangle_size": {
+                "radius": 10.0,
+                "width": 21.0,
+                "height": 13.0,
+                "polygon_scale": 100.0,
+                "vertices_local": [],
+                "function_expression": "0",
+                "function_orientation": "y_of_x",
+                "function_range_start": -10.0,
+                "function_range_end": 10.0,
+                "function_thickness": 0.1,
+            },
+            "placement_function_size": {
+                "radius": 10.0,
+                "width": 44.0,
+                "height": 17.0,
+                "polygon_scale": 100.0,
+                "vertices_local": [],
+                "function_expression": "x",
+                "function_orientation": "y_of_x",
+                "function_range_start": -6.0,
+                "function_range_end": 8.0,
+                "function_thickness": 3.0,
+            },
+            "clusters": [
+                {
+                    "cluster_id": 9,
+                    "shape_kind": "circle",
+                    "center": {"x": 1.5, "y": -2.5},
+                    "size": {
+                        "radius": 8.0,
+                        "width": 16.0,
+                        "height": 16.0,
+                        "polygon_scale": 100.0,
+                        "vertices_local": [],
+                        "function_expression": "0",
+                        "function_orientation": "y_of_x",
+                        "function_range_start": -10.0,
+                        "function_range_end": 10.0,
+                        "function_thickness": 0.1,
+                    },
+                    "manual_star_count": 4,
+                },
+                {
+                    "cluster_id": 11,
+                    "shape_kind": "rectangle",
+                    "center": {"x": -3.0, "y": 4.0},
+                    "size": {
+                        "radius": 6.0,
+                        "width": 12.0,
+                        "height": 5.0,
+                        "polygon_scale": 100.0,
+                        "vertices_local": [],
+                        "function_expression": "0",
+                        "function_orientation": "y_of_x",
+                        "function_range_start": -10.0,
+                        "function_range_end": 10.0,
+                        "function_thickness": 0.1,
+                    },
+                    "manual_star_count": 9,
+                },
+            ],
+            "selected_cluster_ids": [11],
+            "next_cluster_id": 20,
+            "total_cluster_stars": 1234,
+            "distribution_mode": "deviation",
+            "deviation_percent": 15.0,
+            "star_parameter": {
+                "enabled": True,
+                "name": "Mass",
+                "min_value": -3.0,
+                "max_value": 9.0,
+                "mode": "function",
+                "function_body": 'return "new_tag"',
+            },
+            "trash_star_count": 25,
+            "trash_min_distance": 11.5,
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "cluster_config_full.json"
+            input_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            loaded_count = self.controller.import_cluster_configuration_from_path(input_path)
+
+            self.assertEqual(loaded_count, 2)
+            self.assertEqual(len(self.controller.state.clusters), 2)
+            self.assertEqual(self.controller.state.clusters[0].cluster_id, 9)
+            self.assertEqual(self.controller.state.clusters[1].cluster_id, 11)
+            self.assertEqual(self.controller.state.selected_cluster_ids, [11])
+            self.assertEqual(self.controller.state.next_cluster_id, 20)
+            self.assertEqual(self.controller.state.total_cluster_stars, 1234)
+            self.assertEqual(self.controller.state.distribution_mode, DistributionMode.DEVIATION)
+            self.assertEqual(self.controller.state.deviation_percent, 15.0)
+            self.assertEqual(self.controller.state.star_parameter.enabled, True)
+            self.assertEqual(self.controller.state.star_parameter.name, "Mass")
+            self.assertEqual(self.controller.state.star_parameter.mode, StarParameterMode.FUNCTION)
+            self.assertEqual(self.controller.state.star_parameter.function_body, 'return "new_tag"')
+            self.assertEqual(self.controller.state.trash_star_count, 25)
+            self.assertEqual(self.controller.state.trash_min_distance, 11.5)
+            self.assertEqual(self.controller.state.placement_circle_size.radius, 15.0)
+            self.assertEqual(self.controller.state.placement_rectangle_size.width, 21.0)
+            self.assertEqual(self.controller.state.placement_function_size.function_expression, "x")
 
     def test_import_cluster_configuration_syncs_total_in_manual_mode(self) -> None:
         self.controller.state = AppState(
@@ -531,11 +679,13 @@ class EditorControllerTests(unittest.TestCase):
             self.controller.import_cluster_configuration_from_path(input_path)
 
             self.assertEqual(len(self.controller.state.clusters), 1)
-            self.assertEqual(self.controller.state.clusters[0].cluster_id, 1)
+            self.assertEqual(self.controller.state.clusters[0].cluster_id, 9)
             self.assertEqual(self.controller.state.clusters[0].shape_kind, ShapeKind.POLYGON)
             self.assertEqual(self.controller.state.clusters[0].manual_star_count, 8)
             self.assertEqual(self.controller.state.selected_cluster_ids, [])
-            self.assertEqual(self.controller.state.next_cluster_id, 2)
+            self.assertEqual(self.controller.state.next_cluster_id, 10)
+            self.assertEqual(self.controller.state.total_cluster_stars, 123)
+            self.assertEqual(self.controller.state.placement_circle_size.radius, 999.0)
 
     def test_import_cluster_configuration_failure_does_not_mutate_state(self) -> None:
         self.controller.state = AppState(

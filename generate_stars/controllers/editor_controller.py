@@ -631,19 +631,52 @@ class EditorController:
     def import_cluster_configuration_from_path(self, input_path: Path) -> int:
         localizer = get_localizer()
         try:
-            loaded_clusters = load_cluster_configuration(input_path)
+            loaded_configuration = load_cluster_configuration(input_path)
         except ClusterConfigurationError as exc:
             raise GenerationError(str(exc)) from exc
 
         def mutate() -> None:
-            self.state.clusters = []
-            self.state.selected_cluster_ids = []
-            self.state.next_cluster_id = 1
-            for loaded_cluster in loaded_clusters:
-                cluster = loaded_cluster.copy()
-                cluster.cluster_id = self.state.next_cluster_id
-                self.state.next_cluster_id += 1
-                self.state.clusters.append(cluster)
+            self.state.clusters = [cluster.copy() for cluster in loaded_configuration.clusters]
+            loaded_cluster_ids = {cluster.cluster_id for cluster in self.state.clusters}
+            max_cluster_id = max(loaded_cluster_ids) if loaded_cluster_ids else 0
+
+            if loaded_configuration.selected_cluster_ids is None:
+                self.state.selected_cluster_ids = []
+            else:
+                self.state.selected_cluster_ids = [
+                    cluster_id
+                    for cluster_id in loaded_configuration.selected_cluster_ids
+                    if cluster_id in loaded_cluster_ids
+                ]
+
+            if loaded_configuration.next_cluster_id is None:
+                self.state.next_cluster_id = max_cluster_id + 1
+            else:
+                self.state.next_cluster_id = max(
+                    loaded_configuration.next_cluster_id,
+                    max_cluster_id + 1,
+                )
+
+            if loaded_configuration.placement_circle_size is not None:
+                self.state.placement_circle_size = loaded_configuration.placement_circle_size.copy()
+            if loaded_configuration.placement_rectangle_size is not None:
+                self.state.placement_rectangle_size = loaded_configuration.placement_rectangle_size.copy()
+            if loaded_configuration.placement_function_size is not None:
+                self.state.placement_function_size = loaded_configuration.placement_function_size.copy()
+            if loaded_configuration.total_cluster_stars is not None:
+                self.state.total_cluster_stars = loaded_configuration.total_cluster_stars
+            if loaded_configuration.distribution_mode is not None:
+                self.state.distribution_mode = loaded_configuration.distribution_mode
+            if loaded_configuration.deviation_percent is not None:
+                self.state.deviation_percent = loaded_configuration.deviation_percent
+            if loaded_configuration.star_parameter is not None:
+                self.state.star_parameter = loaded_configuration.star_parameter.copy()
+            elif loaded_configuration.star_parameter_function_body is not None:
+                self.state.star_parameter.function_body = loaded_configuration.star_parameter_function_body
+            if loaded_configuration.trash_star_count is not None:
+                self.state.trash_star_count = loaded_configuration.trash_star_count
+            if loaded_configuration.trash_min_distance is not None:
+                self.state.trash_min_distance = loaded_configuration.trash_min_distance
 
         self._run_immediate_edit(mutate)
         self._last_config_save_path = input_path
@@ -653,12 +686,12 @@ class EditorController:
             pass
         self.session.status_text = localizer.text(
             "status.configuration_loaded",
-            count=len(loaded_clusters),
+            count=len(loaded_configuration.clusters),
             filename=input_path.name,
         )
         self.session.status_kind = "success"
         self._notify()
-        return len(loaded_clusters)
+        return len(loaded_configuration.clusters)
 
     def _sync_total_stars_for_manual_mode(self) -> None:
         if self.state.distribution_mode is not DistributionMode.MANUAL:
