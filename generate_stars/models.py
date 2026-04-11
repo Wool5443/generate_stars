@@ -46,6 +46,11 @@ class FunctionOrientation(StrEnum):
         return "x" if self is FunctionOrientation.Y_OF_X else "y"
 
 
+class StarParameterMode(StrEnum):
+    RANDOM = "random"
+    FUNCTION = "function"
+
+
 @dataclass(slots=True)
 class Point:
     x: float
@@ -61,6 +66,8 @@ class StarParameterConfig:
     name: str = field(default_factory=lambda: get_app_config().defaults.star_parameter_name)
     min_value: float = field(default_factory=lambda: get_app_config().defaults.star_parameter_min_value)
     max_value: float = field(default_factory=lambda: get_app_config().defaults.star_parameter_max_value)
+    mode: StarParameterMode = field(default_factory=lambda: StarParameterMode(get_app_config().defaults.star_parameter_mode))
+    function_body: str = field(default_factory=lambda: get_app_config().defaults.star_parameter_function_body)
 
     def copy(self) -> "StarParameterConfig":
         return StarParameterConfig(
@@ -68,6 +75,8 @@ class StarParameterConfig:
             name=self.name,
             min_value=self.min_value,
             max_value=self.max_value,
+            mode=self.mode,
+            function_body=self.function_body,
         )
 
 
@@ -75,7 +84,7 @@ class StarParameterConfig:
 class StarRecord:
     x: float
     y: float
-    parameter_value: float | None = None
+    parameter_value: float | str | None = None
 
     @property
     def point(self) -> Point:

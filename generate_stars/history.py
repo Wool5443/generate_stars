@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import AppState, ClusterInstance, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterConfig
+from .models import (
+    AppState,
+    ClusterInstance,
+    ClusterSize,
+    DistributionMode,
+    FunctionOrientation,
+    Point,
+    ShapeKind,
+    StarParameterConfig,
+    StarParameterMode,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +77,8 @@ class StarParameterSnapshot:
     name: str
     min_value: float
     max_value: float
+    mode: StarParameterMode
+    function_body: str
 
     @classmethod
     def from_model(cls, parameter: StarParameterConfig) -> "StarParameterSnapshot":
@@ -75,6 +87,8 @@ class StarParameterSnapshot:
             name=parameter.name,
             min_value=parameter.min_value,
             max_value=parameter.max_value,
+            mode=parameter.mode,
+            function_body=parameter.function_body,
         )
 
     def to_model(self) -> StarParameterConfig:
@@ -83,6 +97,8 @@ class StarParameterSnapshot:
             name=self.name,
             min_value=self.min_value,
             max_value=self.max_value,
+            mode=self.mode,
+            function_body=self.function_body,
         )
 
 

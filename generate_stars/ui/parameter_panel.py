@@ -11,6 +11,7 @@ from gi.repository import Gtk
 from ..config import AppConfig
 from ..controllers.view_models import ParameterPanelViewModel
 from ..localization import get_localizer
+from ..models import StarParameterMode
 from .widgets import PanelView
 
 
@@ -30,6 +31,11 @@ class ParameterPanelView(PanelView):
         attach_continuous_history(self.parameter_name_entry)
         self.parameter_fields_box.append(self.build_row(localizer.text("ui.label.name"), self.parameter_name_entry))
 
+        self.parameter_mode_combo = Gtk.ComboBoxText()
+        self.parameter_mode_combo.append(StarParameterMode.RANDOM.value, localizer.text("ui.option.parameter_random"))
+        self.parameter_mode_combo.append(StarParameterMode.FUNCTION.value, localizer.text("ui.option.parameter_function"))
+        self.parameter_fields_box.append(self.build_row(localizer.text("ui.label.parameter_mode"), self.parameter_mode_combo))
+
         self.parameter_min_spin = self.make_spin(
             config.limits.star_parameter_value_min,
             config.limits.star_parameter_value_max,
@@ -37,7 +43,8 @@ class ParameterPanelView(PanelView):
             digits=3,
         )
         attach_continuous_history(self.parameter_min_spin)
-        self.parameter_fields_box.append(self.build_row(localizer.text("ui.label.min"), self.parameter_min_spin))
+        self.parameter_min_row = self.build_row(localizer.text("ui.label.min"), self.parameter_min_spin)
+        self.parameter_fields_box.append(self.parameter_min_row)
 
         self.parameter_max_spin = self.make_spin(
             config.limits.star_parameter_value_min,
@@ -46,12 +53,45 @@ class ParameterPanelView(PanelView):
             digits=3,
         )
         attach_continuous_history(self.parameter_max_spin)
-        self.parameter_fields_box.append(self.build_row(localizer.text("ui.label.max"), self.parameter_max_spin))
+        self.parameter_max_row = self.build_row(localizer.text("ui.label.max"), self.parameter_max_spin)
+        self.parameter_fields_box.append(self.parameter_max_row)
+
+        self.parameter_function_body_view = Gtk.TextView()
+        self.parameter_function_body_view.set_monospace(True)
+        self.parameter_function_body_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.parameter_function_body_view.set_top_margin(6)
+        self.parameter_function_body_view.set_bottom_margin(6)
+        self.parameter_function_body_view.set_left_margin(6)
+        self.parameter_function_body_view.set_right_margin(6)
+        self.parameter_function_body_buffer = self.parameter_function_body_view.get_buffer()
+        attach_continuous_history(self.parameter_function_body_view)
+
+        function_body_scroller = Gtk.ScrolledWindow()
+        function_body_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        function_body_scroller.set_min_content_height(110)
+        function_body_scroller.set_child(self.parameter_function_body_view)
+
+        self.parameter_function_body_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=config.ui.row_spacing)
+        function_body_label = Gtk.Label(label=localizer.text("ui.label.parameter_function_body"), xalign=0.0)
+        self.parameter_function_body_row.append(function_body_label)
+        self.parameter_function_body_row.append(function_body_scroller)
+        self.parameter_fields_box.append(self.parameter_function_body_row)
 
     def apply(self, view_model: ParameterPanelViewModel) -> None:
         self.parameter_enabled_check.set_active(view_model.enabled)
         self.parameter_fields_box.set_sensitive(view_model.enabled)
         if self.parameter_name_entry.get_text() != view_model.name:
             self.parameter_name_entry.set_text(view_model.name)
+        self.parameter_mode_combo.set_active_id(view_model.mode.value)
         self.parameter_min_spin.set_value(view_model.min_value)
         self.parameter_max_spin.set_value(view_model.max_value)
+        self.parameter_min_row.set_visible(view_model.show_random_range)
+        self.parameter_max_row.set_visible(view_model.show_random_range)
+        self.parameter_function_body_row.set_visible(view_model.show_function_body)
+        if self._buffer_text(self.parameter_function_body_buffer) != view_model.function_body:
+            self.parameter_function_body_buffer.set_text(view_model.function_body)
+
+    def _buffer_text(self, buffer: Gtk.TextBuffer) -> str:
+        start = buffer.get_start_iter()
+        end = buffer.get_end_iter()
+        return buffer.get_text(start, end, True)

@@ -3,7 +3,17 @@ from __future__ import annotations
 import unittest
 
 from generate_stars.history import HistoryManager
-from generate_stars.models import AppState, ClusterInstance, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterConfig
+from generate_stars.models import (
+    AppState,
+    ClusterInstance,
+    ClusterSize,
+    DistributionMode,
+    FunctionOrientation,
+    Point,
+    ShapeKind,
+    StarParameterConfig,
+    StarParameterMode,
+)
 
 
 def make_cluster(
@@ -59,7 +69,14 @@ class HistoryTests(unittest.TestCase):
             total_cluster_stars=12,
             distribution_mode=DistributionMode.MANUAL,
             deviation_percent=35.0,
-            star_parameter=StarParameterConfig(enabled=True, name="Mass", min_value=-2.0, max_value=4.0),
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Mass",
+                min_value=-2.0,
+                max_value=4.0,
+                mode=StarParameterMode.FUNCTION,
+                function_body='return "tag"',
+            ),
             trash_star_count=10,
             trash_min_distance=8.0,
         )
@@ -80,6 +97,8 @@ class HistoryTests(unittest.TestCase):
         state.total_cluster_stars = 999
         state.trash_star_count = 111
         state.star_parameter.name = "Changed"
+        state.star_parameter.mode = StarParameterMode.RANDOM
+        state.star_parameter.function_body = 'return "changed"'
         state.placement_function_size.function_expression = "Changed"
 
         state.apply_editable_snapshot(snapshot)
@@ -91,6 +110,8 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(state.total_cluster_stars, 12)
         self.assertEqual(state.trash_star_count, 10)
         self.assertEqual(state.star_parameter.name, "Mass")
+        self.assertEqual(state.star_parameter.mode, StarParameterMode.FUNCTION)
+        self.assertEqual(state.star_parameter.function_body, 'return "tag"')
         self.assertEqual(state.placement_function_size.function_expression, "x")
         self.assertEqual(state.placement_function_size.function_orientation, FunctionOrientation.X_OF_Y)
 

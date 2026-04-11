@@ -27,6 +27,8 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.defaults.star_parameter_name, "Value")
             self.assertEqual(config.defaults.star_parameter_min_value, 0.0)
             self.assertEqual(config.defaults.star_parameter_max_value, 1.0)
+            self.assertEqual(config.defaults.star_parameter_mode, "random")
+            self.assertEqual(config.defaults.star_parameter_function_body, 'return "value"')
             self.assertEqual(issues, [])
 
     def test_partial_runtime_config_merges_with_defaults(self) -> None:
@@ -60,6 +62,7 @@ class ConfigTests(unittest.TestCase):
                     'star_parameter_enabled = "bad"\n'
                     "star_parameter_min_value = 3.0\n"
                     "star_parameter_max_value = 1.0\n"
+                    'star_parameter_mode = "bad"\n'
                     "unknown = 1\n"
                     "\n"
                     "[colors]\n"
@@ -75,10 +78,12 @@ class ConfigTests(unittest.TestCase):
             self.assertFalse(config.defaults.star_parameter_enabled)
             self.assertEqual(config.defaults.star_parameter_min_value, 0.0)
             self.assertEqual(config.defaults.star_parameter_max_value, 1.0)
+            self.assertEqual(config.defaults.star_parameter_mode, "random")
             self.assertEqual(config.colors.grid, (0.7, 0.72, 0.78, 0.08))
             self.assertIn("defaults.cluster_radius", issue_paths)
             self.assertIn("defaults.star_parameter_enabled", issue_paths)
             self.assertIn("defaults.star_parameter_max_value", issue_paths)
+            self.assertIn("defaults.star_parameter_mode", issue_paths)
             self.assertIn("defaults.unknown", issue_paths)
             self.assertIn("colors.grid", issue_paths)
 

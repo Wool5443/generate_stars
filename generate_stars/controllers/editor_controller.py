@@ -9,7 +9,7 @@ from ..config import AppConfig
 from ..generator import GenerationError, even_counts, format_points_for_export, generate_star_field, validate_cluster_size, validate_state
 from ..history import HistoryManager
 from ..localization import get_localizer
-from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind
+from ..models import AppState, CanvasTool, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterMode
 from ..preferences import (
     load_last_config_save_path,
     load_last_save_path,
@@ -548,6 +548,15 @@ class EditorController:
         self.clear_status()
         self._notify()
 
+    def set_parameter_mode(self, mode: StarParameterMode) -> None:
+        self._run_immediate_edit(lambda: setattr(self.state.star_parameter, "mode", mode))
+
+    def set_parameter_function_body(self, body: str, source: object) -> None:
+        self.ensure_continuous_history(source)
+        self.state.star_parameter.function_body = body
+        self.clear_status()
+        self._notify()
+
     def set_trash_star_count(self, value: int, source: object) -> None:
         self.ensure_continuous_history(source)
         self.state.trash_star_count = value
@@ -1014,6 +1023,10 @@ class EditorController:
                 name=self.state.star_parameter.name,
                 min_value=self.state.star_parameter.min_value,
                 max_value=self.state.star_parameter.max_value,
+                mode=self.state.star_parameter.mode,
+                function_body=self.state.star_parameter.function_body,
+                show_random_range=self.state.star_parameter.mode is StarParameterMode.RANDOM,
+                show_function_body=self.state.star_parameter.mode is StarParameterMode.FUNCTION,
             ),
             trash_panel=TrashPanelViewModel(
                 count=self.state.trash_star_count,

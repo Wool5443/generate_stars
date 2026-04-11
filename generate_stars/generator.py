@@ -4,15 +4,32 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 import math
 import random
+import textwrap
+from typing import Callable
 
 from .config import AppConfig, get_app_config
 from .localization import get_localizer
-from .models import AppState, ClusterConfig, ClusterInstance, ClusterSize, DistributionMode, Point, ShapeKind, StarParameterConfig, StarRecord
+from .models import (
+    AppState,
+    ClusterConfig,
+    ClusterInstance,
+    ClusterSize,
+    DistributionMode,
+    Point,
+    ShapeKind,
+    StarParameterConfig,
+    StarParameterMode,
+    StarRecord,
+)
 from .shapes import BoundingBox, get_shape, validate_function_cluster_size, validate_polygon_vertices
 
 
 class GenerationError(RuntimeError):
     """Raised when a valid star field cannot be generated."""
+
+
+class ParameterFunctionDefinitionError(ValueError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,8 +133,13 @@ def validate_state(state: AppState) -> list[str]:
     if state.star_parameter.enabled:
         if not state.star_parameter.name.strip():
             errors.append(localizer.text("error.parameter_name_empty"))
-        if state.star_parameter.max_value < state.star_parameter.min_value:
+        if state.star_parameter.mode is StarParameterMode.RANDOM and state.star_parameter.max_value < state.star_parameter.min_value:
             errors.append(localizer.text("error.parameter_range_invalid"))
+        if state.star_parameter.mode is StarParameterMode.FUNCTION:
+            try:
+                compile_parameter_function(state.star_parameter.function_body)
+            except ParameterFunctionDefinitionError:
+                errors.append(localizer.text("error.parameter_function_invalid"))
 
     if state.distribution_mode is DistributionMode.MANUAL:
         if any(cluster.manual_star_count < 0 for cluster in state.clusters):
@@ -297,6 +319,17 @@ def generate_star_records(
     if not parameter.enabled:
         return [StarRecord(point.x, point.y) for point in points]
 
+    if parameter.mode is StarParameterMode.FUNCTION:
+        evaluator = _build_parameter_function_evaluator(parameter.function_body)
+        return [
+            StarRecord(
+                point.x,
+                point.y,
+                evaluator(),
+            )
+            for point in points
+        ]
+
     return [
         StarRecord(
             point.x,
@@ -305,6 +338,49 @@ def generate_star_records(
         )
         for point in points
     ]
+
+
+def _parameter_function_source(function_body: str) -> str:
+    normalized_body = function_body.replace("\r\n", "\n").replace("\r", "\n")
+    if not normalized_body.strip():
+        raise ParameterFunctionDefinitionError("empty")
+    return f"def _third_parameter_value():\n{textwrap.indent(normalized_body, '    ')}\n"
+
+
+def compile_parameter_function(function_body: str) -> Callable[[], object]:
+    source = _parameter_function_source(function_body)
+    namespace: dict[str, object] = {}
+    try:
+        code = compile(source, "<star-parameter-function>", "exec")
+        exec(code, namespace, namespace)
+    except Exception as exc:
+        raise ParameterFunctionDefinitionError("invalid") from exc
+
+    candidate = namespace.get("_third_parameter_value")
+    if not callable(candidate):
+        raise ParameterFunctionDefinitionError("invalid")
+    return candidate
+
+
+def _build_parameter_function_evaluator(function_body: str) -> Callable[[], str]:
+    localizer = get_localizer()
+    try:
+        parameter_function = compile_parameter_function(function_body)
+    except ParameterFunctionDefinitionError as exc:
+        raise GenerationError(localizer.text("error.parameter_function_invalid")) from exc
+
+    def evaluate() -> str:
+        try:
+            value = parameter_function()
+        except Exception as exc:
+            raise GenerationError(localizer.text("error.parameter_function_runtime")) from exc
+        if not isinstance(value, str):
+            raise GenerationError(localizer.text("error.parameter_function_return_type"))
+        if not value or any(character.isspace() for character in value):
+            raise GenerationError(localizer.text("error.parameter_string_token_invalid"))
+        return value
+
+    return evaluate
 
 
 def generate_star_field(state: AppState, rng: random.Random | None = None) -> GeneratedField:
@@ -372,7 +448,12 @@ def format_points_for_export(
         if export_parameter_name:
             if parameter_value is None:
                 raise ValueError(get_localizer().text("error.parameter_export_requires_value"))
-            parameter_text = f"{parameter_value:.{precision}f}".replace(".", ",")
+            if isinstance(parameter_value, str):
+                if not parameter_value or any(character.isspace() for character in parameter_value):
+                    raise ValueError(get_localizer().text("error.parameter_string_token_invalid"))
+                parameter_text = parameter_value
+            else:
+                parameter_text = f"{parameter_value:.{precision}f}".replace(".", ",")
             lines.append(f"{x_value} {y_value} {parameter_text}")
             continue
 

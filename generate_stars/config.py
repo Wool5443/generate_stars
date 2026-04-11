@@ -55,6 +55,8 @@ class DefaultsConfig:
     star_parameter_name: str
     star_parameter_min_value: float
     star_parameter_max_value: float
+    star_parameter_mode: str
+    star_parameter_function_body: str
     trash_star_count: int
     trash_min_distance: float
     viewport_scale: float
@@ -447,6 +449,20 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             issues,
             "defaults.star_parameter_max_value",
         ),
+        star_parameter_mode=_string_value(
+            default_values,
+            default_defaults,
+            "star_parameter_mode",
+            issues,
+            "defaults.star_parameter_mode",
+        ),
+        star_parameter_function_body=_string_value(
+            default_values,
+            default_defaults,
+            "star_parameter_function_body",
+            issues,
+            "defaults.star_parameter_function_body",
+        ),
         trash_star_count=_int_value(
             default_values,
             default_defaults,
@@ -491,6 +507,17 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             defaults_config,
             star_parameter_min_value=float(default_defaults["star_parameter_min_value"]),
             star_parameter_max_value=float(default_defaults["star_parameter_max_value"]),
+        )
+    if defaults_config.star_parameter_mode not in {"random", "function"}:
+        issues.append(
+            ConfigIssue(
+                "defaults.star_parameter_mode",
+                "Expected 'random' or 'function'.",
+            )
+        )
+        defaults_config = replace(
+            defaults_config,
+            star_parameter_mode=str(default_defaults["star_parameter_mode"]),
         )
     if defaults_config.function_orientation not in {"y_of_x", "x_of_y"}:
         issues.append(

@@ -27,10 +27,7 @@ a = Analysis(
                 "Gtk": "4.0",
                 "Gdk": "4.0",
             },
-            "languages": [
-                "en",
-                "ru",
-            ],
+            "languages": [],
             "icons": [
                 "Adwaita",
             ],

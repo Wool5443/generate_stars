@@ -14,7 +14,7 @@ from ..config import AppConfig, ConfigIssue
 from ..controllers.editor_controller import EditorController
 from ..generator import GenerationError
 from ..localization import get_localizer
-from ..models import CanvasTool, DistributionMode, FunctionOrientation, ShapeKind
+from ..models import CanvasTool, DistributionMode, FunctionOrientation, ShapeKind, StarParameterMode
 from .canvas import StarCanvas
 from .sidebar import SidebarView
 from .toolbar import CanvasToolbarView
@@ -128,8 +128,10 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         parameter_panel = self.sidebar_view.parameter_panel
         parameter_panel.parameter_enabled_check.connect("toggled", self._on_parameter_enabled_toggled)
         parameter_panel.parameter_name_entry.connect("changed", self._on_parameter_name_changed)
+        parameter_panel.parameter_mode_combo.connect("changed", self._on_parameter_mode_changed)
         parameter_panel.parameter_min_spin.connect("value-changed", self._on_parameter_min_changed)
         parameter_panel.parameter_max_spin.connect("value-changed", self._on_parameter_max_changed)
+        parameter_panel.parameter_function_body_buffer.connect("changed", self._on_parameter_function_body_changed)
 
         trash_panel = self.sidebar_view.trash_panel
         trash_panel.trash_count_spin.connect("value-changed", self._on_trash_count_changed)
@@ -429,6 +431,24 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         if self._syncing_ui:
             return
         self.controller.set_parameter_max(spin.get_value(), spin)
+
+    def _on_parameter_mode_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._syncing_ui:
+            return
+        active_id = combo.get_active_id()
+        if not active_id:
+            return
+        self.controller.set_parameter_mode(StarParameterMode(active_id))
+
+    def _on_parameter_function_body_changed(self, buffer: Gtk.TextBuffer) -> None:
+        if self._syncing_ui:
+            return
+        start = buffer.get_start_iter()
+        end = buffer.get_end_iter()
+        self.controller.set_parameter_function_body(
+            buffer.get_text(start, end, True),
+            self.sidebar_view.parameter_panel.parameter_function_body_view,
+        )
 
     def _on_trash_count_changed(self, spin: Gtk.SpinButton) -> None:
         if self._syncing_ui:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..models import CanvasTool, DistributionMode
+from ..models import CanvasTool, DistributionMode, StarParameterMode
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +85,10 @@ class ParameterPanelViewModel:
     name: str
     min_value: float
     max_value: float
+    mode: StarParameterMode
+    function_body: str
+    show_random_range: bool
+    show_function_body: bool
 
 
 @dataclass(frozen=True, slots=True)

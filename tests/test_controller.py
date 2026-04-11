@@ -7,7 +7,7 @@ from pathlib import Path
 
 from generate_stars.config import initialize_app_config
 from generate_stars.controllers.editor_controller import EditorController
-from generate_stars.models import AppState, ClusterInstance, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind
+from generate_stars.models import AppState, ClusterInstance, ClusterSize, DistributionMode, FunctionOrientation, Point, ShapeKind, StarParameterMode
 from generate_stars.shapes import function_size_from_parameters
 
 
@@ -70,6 +70,19 @@ class EditorControllerTests(unittest.TestCase):
             view_model.toolbar.active_tool_description,
             self.controller.config.text.select_tool_description,
         )
+        self.assertEqual(view_model.parameter_panel.mode, StarParameterMode.RANDOM)
+        self.assertTrue(view_model.parameter_panel.show_random_range)
+        self.assertFalse(view_model.parameter_panel.show_function_body)
+
+    def test_parameter_mode_switches_view_model_fields(self) -> None:
+        self.controller.set_parameter_mode(StarParameterMode.FUNCTION)
+        self.controller.set_parameter_function_body('return "token"', object())
+        view_model = self.controller.build_window_view_model()
+
+        self.assertEqual(view_model.parameter_panel.mode, StarParameterMode.FUNCTION)
+        self.assertFalse(view_model.parameter_panel.show_random_range)
+        self.assertTrue(view_model.parameter_panel.show_function_body)
+        self.assertEqual(view_model.parameter_panel.function_body, 'return "token"')
 
     def test_cluster_required_validation_stays_silent_when_no_clusters(self) -> None:
         self.controller.state.total_cluster_stars = 50

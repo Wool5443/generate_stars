@@ -23,6 +23,7 @@ from generate_stars.models import (
     FunctionOrientation,
     Point,
     ShapeKind,
+    StarParameterMode,
     StarParameterConfig,
     StarRecord,
 )
@@ -340,6 +341,17 @@ class GeneratorTests(unittest.TestCase):
         )
         self.assertIn("Star parameter max must be greater than or equal to min.", validate_state(state))
 
+    def test_validate_state_rejects_invalid_parameter_function_body(self) -> None:
+        state = AppState(
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Tag",
+                mode=StarParameterMode.FUNCTION,
+                function_body="return (",
+            )
+        )
+        self.assertIn("Parameter function is invalid.", validate_state(state))
+
     def test_validate_state_rejects_self_intersecting_polygon(self) -> None:
         state = AppState(
             total_cluster_stars=10,
@@ -439,6 +451,110 @@ class GeneratorTests(unittest.TestCase):
             assert star.parameter_value is not None
             self.assertGreaterEqual(star.parameter_value, -1.5)
             self.assertLessEqual(star.parameter_value, 2.5)
+
+    def test_generate_star_field_function_mode_adds_string_parameter(self) -> None:
+        rng = random.Random(31)
+        state = AppState(
+            total_cluster_stars=6,
+            distribution_mode=DistributionMode.EQUAL,
+            trash_star_count=1,
+            trash_min_distance=5.0,
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Tag",
+                mode=StarParameterMode.FUNCTION,
+                function_body='return "fixed_tag"',
+            ),
+            clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=20.0)],
+        )
+        generated = generate_star_field(state, rng=rng)
+        self.assertEqual(len(generated.stars), 7)
+        for star in generated.stars:
+            self.assertEqual(star.parameter_value, "fixed_tag")
+
+    def test_generate_star_field_function_mode_can_import_stdlib(self) -> None:
+        rng = random.Random(37)
+        state = AppState(
+            total_cluster_stars=3,
+            distribution_mode=DistributionMode.EQUAL,
+            trash_star_count=0,
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Tag",
+                mode=StarParameterMode.FUNCTION,
+                function_body='import random\nreturn str(random.randint(1, 9))',
+            ),
+            clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0)],
+        )
+        generated = generate_star_field(state, rng=rng)
+        for star in generated.stars:
+            value = star.parameter_value
+            self.assertIsInstance(value, str)
+            self.assertTrue(value.isdigit())
+
+    def test_generate_star_field_function_mode_requires_string_return(self) -> None:
+        rng = random.Random(41)
+        state = AppState(
+            total_cluster_stars=2,
+            distribution_mode=DistributionMode.EQUAL,
+            trash_star_count=0,
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Tag",
+                mode=StarParameterMode.FUNCTION,
+                function_body="return 123",
+            ),
+            clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0)],
+        )
+        with self.assertRaisesRegex(RuntimeError, "must return string"):
+            generate_star_field(state, rng=rng)
+
+    def test_generate_star_field_function_mode_rejects_whitespace_tokens(self) -> None:
+        rng = random.Random(43)
+        state = AppState(
+            total_cluster_stars=2,
+            distribution_mode=DistributionMode.EQUAL,
+            trash_star_count=0,
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Tag",
+                mode=StarParameterMode.FUNCTION,
+                function_body='return "bad token"',
+            ),
+            clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0)],
+        )
+        with self.assertRaisesRegex(RuntimeError, "without whitespace"):
+            generate_star_field(state, rng=rng)
+
+    def test_generate_star_field_function_mode_propagates_runtime_error(self) -> None:
+        rng = random.Random(47)
+        state = AppState(
+            total_cluster_stars=2,
+            distribution_mode=DistributionMode.EQUAL,
+            trash_star_count=0,
+            star_parameter=StarParameterConfig(
+                enabled=True,
+                name="Tag",
+                mode=StarParameterMode.FUNCTION,
+                function_body='raise RuntimeError("boom")',
+            ),
+            clusters=[make_cluster(1, ShapeKind.CIRCLE, Point(0.0, 0.0), radius=10.0)],
+        )
+        with self.assertRaisesRegex(RuntimeError, "failed during generation"):
+            generate_star_field(state, rng=rng)
+
+    def test_export_format_includes_string_parameter(self) -> None:
+        payload = format_points_for_export(
+            [
+                StarRecord(1.25, -3.5, "alpha"),
+                StarRecord(0.0, 2.125, "beta"),
+            ],
+            parameter_name="Tag",
+            precision=3,
+        )
+        self.assertEqual(payload.splitlines()[0], "X Y Tag")
+        self.assertEqual(payload.splitlines()[1], "1,250 -3,500 alpha")
+        self.assertEqual(payload.splitlines()[2], "0,000 2,125 beta")
 
 
 if __name__ == "__main__":
