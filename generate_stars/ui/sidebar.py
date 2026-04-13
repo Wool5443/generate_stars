@@ -68,13 +68,13 @@ class SidebarView(Gtk.Box):
         self.status_label.set_visible(False)
         self.footer.append(self.status_label)
 
-    def apply(self, view_model: WindowViewModel) -> None:
+    def apply(self, view_model: WindowViewModel, generation_in_progress: bool = False) -> None:
         self.cluster_panel.apply(view_model.cluster_panel)
         self.distribution_panel.apply(view_model.distribution_panel)
         self.parameter_panel.apply(view_model.parameter_panel)
         self.trash_panel.apply(view_model.trash_panel)
 
-        self.generate_button.set_sensitive(view_model.generate_enabled)
+        self.generate_button.set_sensitive(view_model.generate_enabled and not generation_in_progress)
         status_text = view_model.status.text.strip()
         show_status = bool(status_text) and view_model.status.kind in {"error", "success"}
         self.status_label.set_text(status_text if show_status else "")

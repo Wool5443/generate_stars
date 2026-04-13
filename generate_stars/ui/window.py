@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 
 import gi
 
@@ -12,9 +13,9 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 from ..cluster_configuration import DEFAULT_CLUSTER_CONFIGURATION_FILENAME
 from ..config import AppConfig, ConfigIssue
 from ..controllers.editor_controller import EditorController
-from ..generator import GenerationError
+from ..generator import GenerationError, format_points_for_export, generate_star_field, validate_state
 from ..localization import get_localizer
-from ..models import CanvasTool, DistributionMode, FunctionOrientation, ShapeKind, StarParameterMode
+from ..models import AppState, CanvasTool, DistributionMode, FunctionOrientation, ShapeKind, StarParameterMode
 from .canvas import StarCanvas
 from .sidebar import SidebarView
 from .toolbar import CanvasToolbarView
@@ -33,6 +34,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self._startup_config_issues = list(config_issues)
         self._syncing_ui = False
         self._space_pressed = False
+        self._generation_in_progress = False
         super().__init__(application=application, title=config.app.title)
         self.set_default_size(config.window.default_width, config.window.default_height)
 
@@ -184,7 +186,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self._syncing_ui = True
         try:
             self.toolbar_view.apply(view_model.toolbar)
-            self.sidebar_view.apply(view_model)
+            self.sidebar_view.apply(view_model, generation_in_progress=self._generation_in_progress)
         finally:
             self._syncing_ui = False
         self.canvas.queue_draw()
@@ -650,7 +652,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             if output_path.suffix.lower() != ".txt":
                 output_path = output_path.with_suffix(".txt") if output_path.suffix else Path(f"{output_path}.txt")
 
-            self.controller.export_to_path(output_path)
+            self._start_export_in_background(output_path)
         except (GenerationError, OSError) as exc:
             self.controller.set_status(str(exc), "error")
             self._show_error_dialog(str(exc))
@@ -696,3 +698,44 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             self._show_error_dialog(str(exc))
         finally:
             dialog.destroy()
+
+    def _start_export_in_background(self, output_path: Path) -> None:
+        if self._generation_in_progress:
+            return
+        generation_state = self.controller.snapshot_state_for_generation()
+        self._set_generation_in_progress(True)
+        worker = threading.Thread(
+            target=self._export_worker,
+            args=(output_path, generation_state),
+            daemon=True,
+        )
+        worker.start()
+
+    def _set_generation_in_progress(self, in_progress: bool) -> None:
+        self._generation_in_progress = in_progress
+        self._refresh_from_controller()
+
+    def _export_worker(self, output_path: Path, generation_state: AppState) -> None:
+        try:
+            errors = validate_state(generation_state)
+            if errors:
+                raise GenerationError(errors[0])
+
+            generated = generate_star_field(generation_state)
+            parameter_name = generation_state.star_parameter.name.strip() if generation_state.star_parameter.enabled else None
+            output_path.write_text(
+                format_points_for_export(generated.stars, parameter_name=parameter_name),
+                encoding="utf-8",
+            )
+            GLib.idle_add(self._on_export_finished, output_path, len(generated.stars), None)
+        except (GenerationError, OSError, ValueError) as exc:
+            GLib.idle_add(self._on_export_finished, output_path, 0, str(exc))
+
+    def _on_export_finished(self, output_path: Path, stars_count: int, error_message: str | None) -> bool:
+        self._set_generation_in_progress(False)
+        if error_message:
+            self.controller.set_status(error_message, "error")
+            self._show_error_dialog(error_message)
+            return False
+        self.controller.complete_export(output_path, stars_count)
+        return False
