@@ -27,7 +27,7 @@ from .shapes import function_size_from_parameters
 
 
 FORMAT_NAME = "generate_stars_cluster_configuration"
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 DEFAULT_CLUSTER_CONFIGURATION_FILENAME = "cluster_configuration.json"
 
 
@@ -49,6 +49,7 @@ class LoadedClusterConfiguration:
     star_parameter: StarParameterConfig | None = None
     trash_star_count: int | None = None
     trash_min_distance: float | None = None
+    trash_max_distance: float | None = None
     star_parameter_function_body: str | None = None
 
 
@@ -132,6 +133,7 @@ def cluster_configuration_payload(state: AppState) -> dict[str, object]:
         },
         "trash_star_count": state.trash_star_count,
         "trash_min_distance": state.trash_min_distance,
+        "trash_max_distance": state.trash_max_distance,
     }
 
 
@@ -190,6 +192,7 @@ def parse_cluster_configuration_payload(payload: object) -> LoadedClusterConfigu
     star_parameter = _optional_star_parameter(root.get("star_parameter"))
     trash_star_count = _optional_int_value(root.get("trash_star_count"), minimum=0)
     trash_min_distance = _optional_float_value(root.get("trash_min_distance"))
+    trash_max_distance = _optional_float_value(root.get("trash_max_distance"))
 
     function_body_payload = root.get("star_parameter_function_body")
     if function_body_payload is None:
@@ -212,6 +215,7 @@ def parse_cluster_configuration_payload(payload: object) -> LoadedClusterConfigu
         star_parameter=star_parameter,
         trash_star_count=trash_star_count,
         trash_min_distance=trash_min_distance,
+        trash_max_distance=trash_max_distance,
         star_parameter_function_body=star_parameter_function_body,
     )
 

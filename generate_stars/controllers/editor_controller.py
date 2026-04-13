@@ -587,6 +587,12 @@ class EditorController:
         self.clear_status()
         self._notify()
 
+    def set_trash_max_distance(self, value: float, source: object) -> None:
+        self.ensure_continuous_history(source)
+        self.state.trash_max_distance = value
+        self.clear_status()
+        self._notify()
+
     def set_manual_count(self, cluster_id: int, value: int, source: object) -> None:
         cluster = self.state.cluster_by_id(cluster_id)
         if cluster is None:
@@ -687,6 +693,8 @@ class EditorController:
                 self.state.trash_star_count = loaded_configuration.trash_star_count
             if loaded_configuration.trash_min_distance is not None:
                 self.state.trash_min_distance = loaded_configuration.trash_min_distance
+            if loaded_configuration.trash_max_distance is not None:
+                self.state.trash_max_distance = loaded_configuration.trash_max_distance
 
         self._run_immediate_edit(mutate)
         self._last_config_save_path = input_path
@@ -1038,7 +1046,7 @@ class EditorController:
             show_deviation=self.state.distribution_mode is DistributionMode.DEVIATION,
             show_manual_counts=manual_mode,
             total_stars_sensitive=not manual_mode,
-            manual_note=self.config.text.manual_counts_note,
+            manual_note=localizer.text("text.manual_counts_note"),
             manual_rows=manual_rows,
         )
 
@@ -1066,6 +1074,7 @@ class EditorController:
     def build_window_view_model(self) -> WindowViewModel:
         generate_enabled, status = self._effective_status()
         show_function_preview, function_preview_text, function_preview_is_error = self._parameter_function_preview()
+        localizer = get_localizer()
         return WindowViewModel(
             toolbar=ToolbarViewModel(
                 active_tool=self.active_tool,
@@ -1092,7 +1101,8 @@ class EditorController:
             trash_panel=TrashPanelViewModel(
                 count=self.state.trash_star_count,
                 min_distance=self.state.trash_min_distance,
-                note=self.config.text.trash_note,
+                max_distance=self.state.trash_max_distance,
+                note=localizer.text("text.trash_note"),
             ),
             status=status,
             generate_enabled=generate_enabled,
@@ -1111,12 +1121,13 @@ class EditorController:
         return True, localizer.text("ui.parameter_preview_value", value=preview_text), False
 
     def _tool_description(self, tool: CanvasTool) -> str:
+        localizer = get_localizer()
         if tool is CanvasTool.SELECT:
-            return self.config.text.select_tool_description
+            return localizer.text("text.select_tool_description")
         if tool is CanvasTool.CIRCLE:
-            return self.config.text.circle_tool_description
+            return localizer.text("text.circle_tool_description")
         if tool is CanvasTool.RECTANGLE:
-            return self.config.text.rectangle_tool_description
+            return localizer.text("text.rectangle_tool_description")
         if tool is CanvasTool.POLYGON:
-            return self.config.text.polygon_tool_description
-        return self.config.text.function_tool_description
+            return localizer.text("text.polygon_tool_description")
+        return localizer.text("text.function_tool_description")

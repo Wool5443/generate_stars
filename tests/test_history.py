@@ -82,6 +82,7 @@ class HistoryTests(unittest.TestCase):
             ),
             trash_star_count=10,
             trash_min_distance=8.0,
+            trash_max_distance=30.0,
         )
         state.placement_circle_size.radius = 18.0
         state.placement_rectangle_size.width = 30.0
@@ -112,6 +113,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(state.selected_cluster_ids, [2])
         self.assertEqual(state.total_cluster_stars, 12)
         self.assertEqual(state.trash_star_count, 10)
+        self.assertEqual(state.trash_max_distance, 30.0)
         self.assertEqual(state.star_parameter.name, "Mass")
         self.assertEqual(state.star_parameter.mode, StarParameterMode.FUNCTION)
         self.assertEqual(state.star_parameter.function_body, 'return "tag"')

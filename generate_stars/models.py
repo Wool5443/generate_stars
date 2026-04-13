@@ -369,6 +369,7 @@ class AppState:
     star_parameter: StarParameterConfig = field(default_factory=StarParameterConfig)
     trash_star_count: int = field(default_factory=lambda: get_app_config().defaults.trash_star_count)
     trash_min_distance: float = field(default_factory=lambda: get_app_config().defaults.trash_min_distance)
+    trash_max_distance: float = field(default_factory=lambda: get_app_config().defaults.trash_max_distance)
 
     def placement_size_for_shape(self, shape_kind: ShapeKind) -> ClusterSize:
         if shape_kind is ShapeKind.CIRCLE:
@@ -464,6 +465,7 @@ class AppState:
             star_parameter=StarParameterSnapshot.from_model(self.star_parameter),
             trash_star_count=self.trash_star_count,
             trash_min_distance=self.trash_min_distance,
+            trash_max_distance=self.trash_max_distance,
         )
 
     def apply_editable_snapshot(self, snapshot: "EditableStateSnapshot") -> None:
@@ -479,3 +481,4 @@ class AppState:
         self.star_parameter = snapshot.star_parameter.to_model()
         self.trash_star_count = snapshot.trash_star_count
         self.trash_min_distance = snapshot.trash_min_distance
+        self.trash_max_distance = snapshot.trash_max_distance

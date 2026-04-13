@@ -20,7 +20,7 @@ ENGLISH_DEFAULT_TEXTS = {
     "text.rectangle_tool_description": "Rectangle tool: click on the canvas to place a rectangle cluster using the current placement width and height. Switch back to Select to move or edit placed rectangles.",
     "text.polygon_tool_description": "Polygon tool: click to add polygon vertices, click the first vertex to finish the polygon, and press Escape to cancel the draft. Switch to Select to move the polygon or drag its vertices.",
     "text.function_tool_description": "Function tool: click on the canvas to place a function-shaped cluster using the current formula, range, orientation, and thickness. Switch back to Select to move or edit placed function clusters.",
-    "text.trash_note": "Trash stars are sampled from an automatic bounding box around all clusters and kept outside each cluster by the requested edge distance.",
+    "text.trash_note": "Trash stars are sampled from an automatic bounding box around all clusters and must stay within the requested min/max edge-distance band.",
     "text.manual_counts_note": "Manual cluster star counts update the total automatically.",
 }
 
@@ -68,6 +68,7 @@ TRANSLATIONS = {
         "ui.label.deviation_percent": "Deviation %",
         "ui.label.trash_star_count": "Trash star count",
         "ui.label.min_edge_distance": "Min edge distance",
+        "ui.label.max_edge_distance": "Max edge distance",
         "ui.option.equal": "Equal",
         "ui.option.deviation": "Deviation",
         "ui.option.manual": "Manual",
@@ -144,6 +145,8 @@ TRANSLATIONS = {
         "error.cluster_total_negative": "Total cluster stars cannot be negative.",
         "error.trash_count_negative": "Trash star count cannot be negative.",
         "error.trash_distance_negative": "Trash star minimum distance cannot be negative.",
+        "error.trash_max_distance_negative": "Trash star maximum distance cannot be negative.",
+        "error.trash_distance_range_invalid": "Trash star max distance must be greater than or equal to min distance.",
         "error.cluster_required": "Cluster stars require at least one cluster.",
         "error.deviation_negative": "Deviation percent cannot be negative.",
         "error.parameter_name_empty": "Star parameter name cannot be empty.",
@@ -155,7 +158,7 @@ TRANSLATIONS = {
         "error.manual_counts_negative": "Manual cluster counts cannot be negative.",
         "error.manual_counts_total": "Manual cluster counts must sum to the total cluster stars.",
         "error.manual_counts_sync": "Manual counts are out of sync with the cluster count.",
-        "error.trash_placement_failed": "Could not place all trash stars with the requested minimum distance. Reduce the trash-star count or the minimum distance.",
+        "error.trash_placement_failed": "Could not place all trash stars with the requested min/max edge distances. Reduce the trash-star count or widen the distance band.",
         "error.parameter_export_requires_value": "Parameter export requires a value for every star.",
         "error.configuration_invalid": "Cluster configuration file is invalid.",
         "error.polygon_vertex_count": "Polygon must have at least 3 distinct vertices.",
@@ -177,7 +180,7 @@ TRANSLATIONS = {
         "text.rectangle_tool_description": "Инструмент прямоугольника: щелкните по холсту, чтобы поставить прямоугольный кластер с текущими шириной и высотой размещения. Вернитесь к выделению, чтобы перемещать или редактировать созданные прямоугольники.",
         "text.polygon_tool_description": "Инструмент полигона: щелчки добавляют вершины, щелчок по первой вершине завершает полигон, а Escape отменяет черновик. Переключитесь на выделение, чтобы перемещать полигон или тянуть его вершины.",
         "text.function_tool_description": "Инструмент функции: щелкните по холсту, чтобы поставить кластер в форме функции с текущей формулой, диапазоном, ориентацией и толщиной. Вернитесь к выделению, чтобы перемещать или редактировать созданные функциональные кластеры.",
-        "text.trash_note": "Мусорные звезды выбираются из автоматической ограничивающей области вокруг всех кластеров и остаются вне каждого кластера на заданном расстоянии от края.",
+        "text.trash_note": "Мусорные звезды выбираются из автоматической ограничивающей области вокруг всех кластеров и должны попадать в заданный диапазон мин/макс расстояния от края.",
         "text.manual_counts_note": "Ручные значения звезд по кластерам автоматически обновляют общий итог.",
         "ui.toolbar.undo": "Отменить",
         "ui.toolbar.redo": "Повторить",
@@ -219,6 +222,7 @@ TRANSLATIONS = {
         "ui.label.deviation_percent": "Отклонение %",
         "ui.label.trash_star_count": "Число мусорных звезд",
         "ui.label.min_edge_distance": "Мин. расстояние от края",
+        "ui.label.max_edge_distance": "Макс. расстояние от края",
         "ui.option.equal": "Равномерно",
         "ui.option.deviation": "С отклонением",
         "ui.option.manual": "Вручную",
@@ -295,6 +299,8 @@ TRANSLATIONS = {
         "error.cluster_total_negative": "Общее число звезд в кластерах не может быть отрицательным.",
         "error.trash_count_negative": "Число мусорных звезд не может быть отрицательным.",
         "error.trash_distance_negative": "Минимальное расстояние мусорных звезд не может быть отрицательным.",
+        "error.trash_max_distance_negative": "Максимальное расстояние мусорных звезд не может быть отрицательным.",
+        "error.trash_distance_range_invalid": "Максимальное расстояние мусорных звезд должно быть больше или равно минимальному.",
         "error.cluster_required": "Для звезд в кластерах нужен хотя бы один кластер.",
         "error.deviation_negative": "Процент отклонения не может быть отрицательным.",
         "error.parameter_name_empty": "Имя параметра звезды не может быть пустым.",
@@ -306,7 +312,7 @@ TRANSLATIONS = {
         "error.manual_counts_negative": "Ручные количества звезд по кластерам не могут быть отрицательными.",
         "error.manual_counts_total": "Сумма ручных количеств звезд по кластерам должна совпадать с общим числом звезд в кластерах.",
         "error.manual_counts_sync": "Ручные количества звезд не соответствуют числу кластеров.",
-        "error.trash_placement_failed": "Не удалось разместить все мусорные звезды с заданным минимальным расстоянием. Уменьшите число мусорных звезд или минимальное расстояние.",
+        "error.trash_placement_failed": "Не удалось разместить все мусорные звезды с заданным диапазоном мин/макс расстояния от края. Уменьшите число мусорных звезд или расширьте диапазон расстояния.",
         "error.parameter_export_requires_value": "Для экспорта параметра значение должно быть задано для каждой звезды.",
         "error.configuration_invalid": "Файл конфигурации кластеров имеет неверный формат.",
         "error.polygon_vertex_count": "Полигон должен содержать не менее 3 различных вершин.",
@@ -352,21 +358,7 @@ class Localizer:
                 config.defaults.star_parameter_name,
             ),
         )
-        text = replace(
-            config.text,
-            ready_status=self._localize_if_default("text.ready_status", config.text.ready_status),
-            reset_positions_status=self._localize_if_default("text.reset_positions_status", config.text.reset_positions_status),
-            save_dialog_title=self._localize_if_default("text.save_dialog_title", config.text.save_dialog_title),
-            shape_interaction_hint=self._localize_if_default("text.shape_interaction_hint", config.text.shape_interaction_hint),
-            select_tool_description=self._localize_if_default("text.select_tool_description", config.text.select_tool_description),
-            circle_tool_description=self._localize_if_default("text.circle_tool_description", config.text.circle_tool_description),
-            rectangle_tool_description=self._localize_if_default("text.rectangle_tool_description", config.text.rectangle_tool_description),
-            polygon_tool_description=self._localize_if_default("text.polygon_tool_description", config.text.polygon_tool_description),
-            function_tool_description=self._localize_if_default("text.function_tool_description", config.text.function_tool_description),
-            trash_note=self._localize_if_default("text.trash_note", config.text.trash_note),
-            manual_counts_note=self._localize_if_default("text.manual_counts_note", config.text.manual_counts_note),
-        )
-        return replace(config, app=app, defaults=defaults, text=text)
+        return replace(config, app=app, defaults=defaults)
 
     def _localize_if_default(self, key: str, value: str) -> str:
         if self.language == "en":

@@ -36,6 +36,15 @@ class TrashPanelView(PanelView):
         attach_continuous_history(self.trash_distance_spin)
         self.append(self.build_row(localizer.text("ui.label.min_edge_distance"), self.trash_distance_spin))
 
+        self.trash_max_distance_spin = self.make_spin(
+            config.limits.trash_distance_min,
+            config.limits.trash_distance_max,
+            1,
+            digits=1,
+        )
+        attach_continuous_history(self.trash_max_distance_spin)
+        self.append(self.build_row(localizer.text("ui.label.max_edge_distance"), self.trash_max_distance_spin))
+
         self.note = Gtk.Label(xalign=0.0)
         self.note.set_wrap(True)
         self.note.add_css_class("dim-label")
@@ -44,4 +53,5 @@ class TrashPanelView(PanelView):
     def apply(self, view_model: TrashPanelViewModel) -> None:
         self.trash_count_spin.set_value(view_model.count)
         self.trash_distance_spin.set_value(view_model.min_distance)
+        self.trash_max_distance_spin.set_value(view_model.max_distance)
         self.note.set_text(view_model.note)

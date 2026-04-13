@@ -48,7 +48,6 @@ class DefaultsConfig:
     function_range_start: float
     function_range_end: float
     function_thickness: float
-    cluster_count: int
     total_cluster_stars: int
     deviation_percent: float
     star_parameter_enabled: bool
@@ -59,14 +58,13 @@ class DefaultsConfig:
     star_parameter_function_body: str
     trash_star_count: int
     trash_min_distance: float
+    trash_max_distance: float
     viewport_scale: float
     default_save_filename: str
 
 
 @dataclass(frozen=True, slots=True)
 class LimitsConfig:
-    cluster_count_min: int
-    cluster_count_max: int
     size_min: float
     size_max: float
     function_range_min: float
@@ -83,21 +81,6 @@ class LimitsConfig:
     trash_star_count_max: int
     trash_distance_min: float
     trash_distance_max: float
-
-
-@dataclass(frozen=True, slots=True)
-class TextConfig:
-    ready_status: str
-    reset_positions_status: str
-    save_dialog_title: str
-    shape_interaction_hint: str
-    select_tool_description: str
-    circle_tool_description: str
-    rectangle_tool_description: str
-    polygon_tool_description: str
-    function_tool_description: str
-    trash_note: str
-    manual_counts_note: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,7 +155,6 @@ class AppConfig:
     window: WindowConfig
     defaults: DefaultsConfig
     limits: LimitsConfig
-    text: TextConfig
     ui: UiConfig
     canvas: CanvasConfig
     colors: ColorConfig
@@ -219,6 +201,7 @@ def load_app_config(path: Path | None = None, *, create_missing: bool = False) -
     issues: list[ConfigIssue] = []
     defaults = copy.deepcopy(_default_config_data())
     runtime_path = runtime_config_path(path)
+    print(runtime_path)
 
     if create_missing:
         issues.extend(ensure_runtime_config_file(runtime_path))
@@ -404,7 +387,6 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             0.0,
             exclusive_min=True,
         ),
-        cluster_count=_int_value(default_values, default_defaults, "cluster_count", issues, "defaults.cluster_count", 0),
         total_cluster_stars=_int_value(
             default_values,
             default_defaults,
@@ -479,6 +461,14 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             "defaults.trash_min_distance",
             0.0,
         ),
+        trash_max_distance=_float_value(
+            default_values,
+            default_defaults,
+            "trash_max_distance",
+            issues,
+            "defaults.trash_max_distance",
+            0.0,
+        ),
         viewport_scale=_float_value(
             default_values,
             default_defaults,
@@ -542,26 +532,22 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             function_range_start=float(default_defaults["function_range_start"]),
             function_range_end=float(default_defaults["function_range_end"]),
         )
+    if defaults_config.trash_max_distance < defaults_config.trash_min_distance:
+        issues.append(
+            ConfigIssue(
+                "defaults.trash_max_distance",
+                "Must be greater than or equal to defaults.trash_min_distance.",
+            )
+        )
+        defaults_config = replace(
+            defaults_config,
+            trash_min_distance=float(default_defaults["trash_min_distance"]),
+            trash_max_distance=float(default_defaults["trash_max_distance"]),
+        )
 
     limit_values = values["limits"]
     limit_defaults = defaults["limits"]
     limits = LimitsConfig(
-        cluster_count_min=_int_value(
-            limit_values,
-            limit_defaults,
-            "cluster_count_min",
-            issues,
-            "limits.cluster_count_min",
-            0,
-        ),
-        cluster_count_max=_int_value(
-            limit_values,
-            limit_defaults,
-            "cluster_count_max",
-            issues,
-            "limits.cluster_count_max",
-            0,
-        ),
         size_min=_float_value(limit_values, limit_defaults, "size_min", issues, "limits.size_min", 0.0, exclusive_min=True),
         size_max=_float_value(limit_values, limit_defaults, "size_max", issues, "limits.size_max", 0.0, exclusive_min=True),
         function_range_min=_float_value(
@@ -662,76 +648,6 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
         ),
     )
     limits = _validate_limits(limits, limit_defaults, issues)
-
-    text_values = values["text"]
-    text_defaults = defaults["text"]
-    text = TextConfig(
-        ready_status=_string_value(text_values, text_defaults, "ready_status", issues, "text.ready_status"),
-        reset_positions_status=_string_value(
-            text_values,
-            text_defaults,
-            "reset_positions_status",
-            issues,
-            "text.reset_positions_status",
-        ),
-        save_dialog_title=_string_value(
-            text_values,
-            text_defaults,
-            "save_dialog_title",
-            issues,
-            "text.save_dialog_title",
-        ),
-        shape_interaction_hint=_string_value(
-            text_values,
-            text_defaults,
-            "shape_interaction_hint",
-            issues,
-            "text.shape_interaction_hint",
-        ),
-        select_tool_description=_string_value(
-            text_values,
-            text_defaults,
-            "select_tool_description",
-            issues,
-            "text.select_tool_description",
-        ),
-        circle_tool_description=_string_value(
-            text_values,
-            text_defaults,
-            "circle_tool_description",
-            issues,
-            "text.circle_tool_description",
-        ),
-        rectangle_tool_description=_string_value(
-            text_values,
-            text_defaults,
-            "rectangle_tool_description",
-            issues,
-            "text.rectangle_tool_description",
-        ),
-        polygon_tool_description=_string_value(
-            text_values,
-            text_defaults,
-            "polygon_tool_description",
-            issues,
-            "text.polygon_tool_description",
-        ),
-        function_tool_description=_string_value(
-            text_values,
-            text_defaults,
-            "function_tool_description",
-            issues,
-            "text.function_tool_description",
-        ),
-        trash_note=_string_value(text_values, text_defaults, "trash_note", issues, "text.trash_note"),
-        manual_counts_note=_string_value(
-            text_values,
-            text_defaults,
-            "manual_counts_note",
-            issues,
-            "text.manual_counts_note",
-        ),
-    )
 
     ui_values = values["ui"]
     ui_defaults = defaults["ui"]
@@ -1101,7 +1017,6 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
         window=window,
         defaults=defaults_config,
         limits=limits,
-        text=text,
         ui=ui,
         canvas=canvas,
         colors=colors,
@@ -1112,7 +1027,6 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
 def _validate_limits(limits: LimitsConfig, defaults: dict[str, Any], issues: list[ConfigIssue]) -> LimitsConfig:
     result = limits
     comparisons = (
-        ("cluster_count_min", "cluster_count_max"),
         ("size_min", "size_max"),
         ("function_range_min", "function_range_max"),
         ("function_thickness_min", "function_thickness_max"),

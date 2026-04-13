@@ -236,12 +236,15 @@ class GeneratorTests(unittest.TestCase):
             cluster_configs=[cluster],
             count=50,
             min_edge_distance=15.0,
+            max_edge_distance=40.0,
             rng=rng,
         )
         circle = get_shape(ShapeKind.CIRCLE)
         self.assertEqual(len(points), 50)
         for point in points:
-            self.assertGreaterEqual(circle.edge_distance(point, cluster.center, cluster.size), 15.0)
+            edge_distance = circle.edge_distance(point, cluster.center, cluster.size)
+            self.assertGreaterEqual(edge_distance, 15.0)
+            self.assertLessEqual(edge_distance, 40.0)
 
     def test_trash_points_respect_polygon_edge_distance(self) -> None:
         rng = random.Random(20)
@@ -261,11 +264,14 @@ class GeneratorTests(unittest.TestCase):
             cluster_configs=[cluster],
             count=40,
             min_edge_distance=12.0,
+            max_edge_distance=30.0,
             rng=rng,
         )
         self.assertEqual(len(points), 40)
         for point in points:
-            self.assertGreaterEqual(polygon.edge_distance(point, cluster.center, cluster.size), 12.0)
+            edge_distance = polygon.edge_distance(point, cluster.center, cluster.size)
+            self.assertGreaterEqual(edge_distance, 12.0)
+            self.assertLessEqual(edge_distance, 30.0)
 
     def test_trash_points_respect_function_edge_distance(self) -> None:
         rng = random.Random(22)
@@ -284,11 +290,25 @@ class GeneratorTests(unittest.TestCase):
             cluster_configs=[cluster],
             count=40,
             min_edge_distance=6.0,
+            max_edge_distance=20.0,
             rng=rng,
         )
         self.assertEqual(len(points), 40)
         for point in points:
-            self.assertGreaterEqual(function_shape.edge_distance(point, cluster.center, cluster.size), 6.0)
+            edge_distance = function_shape.edge_distance(point, cluster.center, cluster.size)
+            self.assertGreaterEqual(edge_distance, 6.0)
+            self.assertLessEqual(edge_distance, 20.0)
+
+    def test_trash_points_without_clusters_ignore_distance_band(self) -> None:
+        rng = random.Random(23)
+        points = generate_trash_points(
+            cluster_configs=[],
+            count=10,
+            min_edge_distance=5.0,
+            max_edge_distance=7.0,
+            rng=rng,
+        )
+        self.assertEqual(len(points), 10)
 
     def test_export_format_uses_commas(self) -> None:
         payload = format_points_for_export([Point(1.25, -3.5), Point(0.0, 2.125)], precision=3)
@@ -413,6 +433,16 @@ class GeneratorTests(unittest.TestCase):
         )
         self.assertTrue(
             any("Function range end must be greater than range start." in error for error in validate_state(state))
+        )
+
+    def test_validate_state_rejects_invalid_trash_distance_band(self) -> None:
+        state = AppState(
+            trash_min_distance=15.0,
+            trash_max_distance=10.0,
+        )
+        self.assertIn(
+            "Trash star max distance must be greater than or equal to min distance.",
+            validate_state(state),
         )
 
     def test_validate_state_requires_cluster_for_cluster_stars(self) -> None:

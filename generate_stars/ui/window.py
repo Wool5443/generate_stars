@@ -136,6 +136,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         trash_panel = self.sidebar_view.trash_panel
         trash_panel.trash_count_spin.connect("value-changed", self._on_trash_count_changed)
         trash_panel.trash_distance_spin.connect("value-changed", self._on_trash_distance_changed)
+        trash_panel.trash_max_distance_spin.connect("value-changed", self._on_trash_max_distance_changed)
 
         self.help_button.connect("clicked", self._on_help_clicked)
         self.config_save_button.connect("clicked", self._on_save_config_clicked)
@@ -460,6 +461,11 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             return
         self.controller.set_trash_min_distance(spin.get_value(), spin)
 
+    def _on_trash_max_distance_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_ui:
+            return
+        self.controller.set_trash_max_distance(spin.get_value(), spin)
+
     def _on_manual_count_changed(self, spin: Gtk.SpinButton, cluster_id: int) -> None:
         if self._syncing_ui:
             return
@@ -537,7 +543,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.controller.finalize_history_transaction()
         localizer = get_localizer()
         dialog = Gtk.FileChooserNative.new(
-            self.config.text.save_dialog_title,
+            localizer.text("text.save_dialog_title"),
             self,
             Gtk.FileChooserAction.SAVE,
             localizer.text("window.save_button"),

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from generate_stars.config import initialize_app_config
 from generate_stars.controllers.editor_controller import EditorController
+from generate_stars.localization import get_localizer
 from generate_stars.models import (
     AppState,
     CircleSize,
@@ -79,7 +80,7 @@ class EditorControllerTests(unittest.TestCase):
         self.assertFalse(view_model.toolbar.snap_to_integer_grid)
         self.assertEqual(
             view_model.toolbar.active_tool_description,
-            self.controller.config.text.select_tool_description,
+            get_localizer().text("text.select_tool_description"),
         )
         self.assertEqual(view_model.parameter_panel.mode, StarParameterMode.RANDOM)
         self.assertTrue(view_model.parameter_panel.show_random_range)
@@ -297,7 +298,7 @@ class EditorControllerTests(unittest.TestCase):
         self.assertTrue(view_model.cluster_panel.selection.function_editor.show_expression)
         self.assertEqual(view_model.cluster_panel.selection.function_editor.expression, "0.25 * x")
         self.assertEqual(view_model.cluster_panel.selection.function_editor.orientation_id, "y_of_x")
-        self.assertEqual(view_model.toolbar.active_tool_description, self.controller.config.text.select_tool_description)
+        self.assertEqual(view_model.toolbar.active_tool_description, get_localizer().text("text.select_tool_description"))
 
     def test_export_cluster_configuration_to_path_writes_scene_payload(self) -> None:
         self.controller.state = AppState(
@@ -333,6 +334,7 @@ class EditorControllerTests(unittest.TestCase):
             deviation_percent=12.5,
             trash_star_count=9,
             trash_min_distance=4.5,
+            trash_max_distance=17.5,
         )
         self.controller.state.star_parameter.enabled = True
         self.controller.state.star_parameter.name = "Mass"
@@ -365,6 +367,7 @@ class EditorControllerTests(unittest.TestCase):
             self.assertEqual(payload["deviation_percent"], 12.5)
             self.assertEqual(payload["trash_star_count"], 9)
             self.assertEqual(payload["trash_min_distance"], 4.5)
+            self.assertEqual(payload["trash_max_distance"], 17.5)
             self.assertEqual(payload["placement_circle_size"]["radius"], self.controller.state.placement_circle_size.radius)
             self.assertEqual(payload["placement_rectangle_size"]["width"], self.controller.state.placement_rectangle_size.width)
             self.assertEqual(payload["star_parameter"]["value"]["mode"], "function")
@@ -384,6 +387,7 @@ class EditorControllerTests(unittest.TestCase):
             deviation_percent=33.0,
             trash_star_count=12,
             trash_min_distance=5.5,
+            trash_max_distance=28.0,
         )
         self.controller.state.star_parameter.enabled = True
         self.controller.state.star_parameter.name = "Mass"
@@ -451,6 +455,7 @@ class EditorControllerTests(unittest.TestCase):
             self.assertEqual(self.controller.state.star_parameter.name, "Mass")
             self.assertEqual(self.controller.state.trash_star_count, 12)
             self.assertEqual(self.controller.state.trash_min_distance, 5.5)
+            self.assertEqual(self.controller.state.trash_max_distance, 28.0)
             self.assertEqual(self.controller.state.placement_circle_size.radius, 42.0)
             self.assertEqual(self.controller.last_config_save_path, input_path)
             self.assertTrue(self.controller.can_undo)
@@ -469,6 +474,7 @@ class EditorControllerTests(unittest.TestCase):
             deviation_percent=33.0,
             trash_star_count=12,
             trash_min_distance=5.5,
+            trash_max_distance=21.0,
         )
         self.controller.state.star_parameter.enabled = False
         self.controller.state.star_parameter.name = "Old"
@@ -568,6 +574,7 @@ class EditorControllerTests(unittest.TestCase):
             },
             "trash_star_count": 25,
             "trash_min_distance": 11.5,
+            "trash_max_distance": 42.0,
         }
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -591,6 +598,7 @@ class EditorControllerTests(unittest.TestCase):
             self.assertEqual(self.controller.state.star_parameter.function_body, 'return "new_tag"')
             self.assertEqual(self.controller.state.trash_star_count, 25)
             self.assertEqual(self.controller.state.trash_min_distance, 11.5)
+            self.assertEqual(self.controller.state.trash_max_distance, 42.0)
             self.assertEqual(self.controller.state.placement_circle_size.radius, 15.0)
             self.assertEqual(self.controller.state.placement_rectangle_size.width, 21.0)
             self.assertEqual(self.controller.state.placement_function_size.function_expression, "x")

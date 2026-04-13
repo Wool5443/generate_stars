@@ -110,6 +110,10 @@ def validate_state(state: AppState) -> list[str]:
         errors.append(localizer.text("error.trash_count_negative"))
     if state.trash_min_distance < 0.0:
         errors.append(localizer.text("error.trash_distance_negative"))
+    if state.trash_max_distance < 0.0:
+        errors.append(localizer.text("error.trash_max_distance_negative"))
+    if state.trash_max_distance < state.trash_min_distance:
+        errors.append(localizer.text("error.trash_distance_range_invalid"))
 
     errors.extend(
         validate_cluster_size(
@@ -297,6 +301,7 @@ def generate_trash_points(
     cluster_configs: list[ClusterConfig],
     count: int,
     min_edge_distance: float,
+    max_edge_distance: float,
     rng: random.Random,
     config: AppConfig | None = None,
 ) -> list[Point]:
@@ -305,10 +310,11 @@ def generate_trash_points(
 
     config = config or get_app_config()
     base_bounds = combined_bounding_box(cluster_configs, config)
-    padding = max(
+    base_padding = max(
         config.generation.trash_bounds_padding_min,
         min_edge_distance + config.generation.trash_bounds_padding_extra,
     )
+    padding = min(base_padding, max_edge_distance) if cluster_configs else base_padding
     bounds = base_bounds.expanded(padding)
 
     points: list[Point] = []
@@ -323,11 +329,15 @@ def generate_trash_points(
             x=rng.uniform(bounds.min_x, bounds.max_x),
             y=rng.uniform(bounds.min_y, bounds.max_y),
         )
-        if all(
+        if not cluster_configs:
+            points.append(candidate)
+            continue
+
+        edge_distances = [
             get_shape(cluster_config.shape_kind).edge_distance(candidate, cluster_config.center, cluster_config.size)
-            >= min_edge_distance
             for cluster_config in cluster_configs
-        ):
+        ]
+        if all(distance >= min_edge_distance for distance in edge_distances) and min(edge_distances) <= max_edge_distance:
             points.append(candidate)
 
     if len(points) != count:
@@ -438,6 +448,7 @@ def generate_star_field(state: AppState, rng: random.Random | None = None) -> Ge
             cluster_configs=cluster_configs,
             count=state.trash_star_count,
             min_edge_distance=state.trash_min_distance,
+            max_edge_distance=state.trash_max_distance,
             rng=rng,
             config=config,
         )

@@ -98,6 +98,7 @@ class ParameterPanelViewModel:
 class TrashPanelViewModel:
     count: int
     min_distance: float
+    max_distance: float
     note: str
 
 
