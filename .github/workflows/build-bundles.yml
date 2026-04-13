@@ -47,15 +47,26 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          update: true
+          update: false
+          cache: true
           install: >-
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-python-pip
             mingw-w64-ucrt-x86_64-python-gobject
             mingw-w64-ucrt-x86_64-gtk4
 
+      - name: Cache pip (Windows)
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pip-cache
+          key: windows-pip-${{ runner.os }}-${{ hashFiles('packaging/generate-stars.spec', 'scripts/build_bundle.py') }}
+          restore-keys: |
+            windows-pip-${{ runner.os }}-
+
       - name: Install PyInstaller
         shell: msys2 {0}
+        env:
+          PIP_CACHE_DIR: ${{ github.workspace }}/.pip-cache
         run: python -m pip install --user pyinstaller
 
       - name: Build bundle

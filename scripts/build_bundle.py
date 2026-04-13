@@ -32,13 +32,15 @@ def normalized_arch() -> str:
     return aliases.get(machine, machine)
 
 
-def build_bundle() -> None:
+def build_bundle(*, clean: bool) -> None:
+    args = [
+        "--noconfirm",
+        str(SPEC_PATH),
+    ]
+    if clean:
+        args.insert(1, "--clean")
     PyInstaller.__main__.run(
-        [
-            "--noconfirm",
-            "--clean",
-            str(SPEC_PATH),
-        ]
+        args
     )
 
 
@@ -59,9 +61,14 @@ def create_archive(target: str) -> Path:
 def main() -> int:
     parser = ArgumentParser(description="Build a self-contained Generate Stars bundle.")
     parser.add_argument("--target", choices=["linux", "windows"], default=detect_target())
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Run PyInstaller with --clean (slower, but ignores build cache).",
+    )
     args = parser.parse_args()
 
-    build_bundle()
+    build_bundle(clean=args.clean)
     archive_path = create_archive(args.target)
     print(archive_path)
     return 0

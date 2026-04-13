@@ -609,8 +609,29 @@ class EditorController:
         self.clear_status()
         self._notify()
 
-    def export_to_path(self, output_path: Path) -> int:
+    def snapshot_state_for_generation(self) -> AppState:
+        snapshot = self.state.to_editable_snapshot()
+        state_copy = AppState()
+        state_copy.apply_editable_snapshot(snapshot)
+        return state_copy
+
+    def complete_export(self, output_path: Path, star_count: int, *, notify: bool = True) -> None:
         localizer = get_localizer()
+        self._last_save_path = output_path
+        try:
+            save_last_save_path(output_path)
+        except OSError:
+            pass
+        self.session.status_text = localizer.text(
+            "status.saved",
+            count=star_count,
+            filename=output_path.name,
+        )
+        self.session.status_kind = "success"
+        if notify:
+            self._notify()
+
+    def export_to_path(self, output_path: Path) -> int:
         errors = validate_state(self.state)
         if errors:
             raise GenerationError(errors[0])
@@ -621,18 +642,7 @@ class EditorController:
             format_points_for_export(generated.stars, parameter_name=parameter_name),
             encoding="utf-8",
         )
-        self._last_save_path = output_path
-        try:
-            save_last_save_path(output_path)
-        except OSError:
-            pass
-        self.session.status_text = localizer.text(
-            "status.saved",
-            count=len(generated.stars),
-            filename=output_path.name,
-        )
-        self.session.status_kind = "success"
-        self._notify()
+        self.complete_export(output_path, len(generated.stars))
         return len(generated.stars)
 
     def export_cluster_configuration_to_path(self, output_path: Path) -> None:
