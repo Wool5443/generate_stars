@@ -59,6 +59,7 @@ class DefaultsConfig:
     trash_star_count: int
     trash_min_distance: float
     trash_max_distance: float
+    trash_min_star_distance: float
     viewport_scale: float
     default_save_filename: str
 
@@ -201,7 +202,6 @@ def load_app_config(path: Path | None = None, *, create_missing: bool = False) -
     issues: list[ConfigIssue] = []
     defaults = copy.deepcopy(_default_config_data())
     runtime_path = runtime_config_path(path)
-    print(runtime_path)
 
     if create_missing:
         issues.extend(ensure_runtime_config_file(runtime_path))
@@ -467,6 +467,14 @@ def _build_app_config(values: dict[str, Any], defaults: dict[str, Any], issues: 
             "trash_max_distance",
             issues,
             "defaults.trash_max_distance",
+            0.0,
+        ),
+        trash_min_star_distance=_float_value(
+            default_values,
+            default_defaults,
+            "trash_min_star_distance",
+            issues,
+            "defaults.trash_min_star_distance",
             0.0,
         ),
         viewport_scale=_float_value(

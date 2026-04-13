@@ -82,6 +82,7 @@ star_parameter_function_body = "return \"value\""
 trash_star_count = 80
 trash_min_distance = 5.0
 trash_max_distance = 30.0
+trash_min_star_distance = 1.0
 viewport_scale = 10.0
 default_save_filename = "stars.txt"
 

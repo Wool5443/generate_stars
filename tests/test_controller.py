@@ -335,6 +335,7 @@ class EditorControllerTests(unittest.TestCase):
             trash_star_count=9,
             trash_min_distance=4.5,
             trash_max_distance=17.5,
+            trash_min_star_distance=3.5,
         )
         self.controller.state.star_parameter.enabled = True
         self.controller.state.star_parameter.name = "Mass"
@@ -350,7 +351,7 @@ class EditorControllerTests(unittest.TestCase):
 
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["format"], "generate_stars_cluster_configuration")
-            self.assertEqual(payload["version"], 4)
+            self.assertEqual(payload["version"], 5)
             self.assertEqual(payload["clusters"][0]["shape_kind"], "polygon")
             self.assertEqual(payload["clusters"][0]["manual_star_count"], 7)
             self.assertEqual(payload["clusters"][0]["size"]["polygon_scale"], 125.0)
@@ -368,6 +369,7 @@ class EditorControllerTests(unittest.TestCase):
             self.assertEqual(payload["trash_star_count"], 9)
             self.assertEqual(payload["trash_min_distance"], 4.5)
             self.assertEqual(payload["trash_max_distance"], 17.5)
+            self.assertEqual(payload["trash_min_star_distance"], 3.5)
             self.assertEqual(payload["placement_circle_size"]["radius"], self.controller.state.placement_circle_size.radius)
             self.assertEqual(payload["placement_rectangle_size"]["width"], self.controller.state.placement_rectangle_size.width)
             self.assertEqual(payload["star_parameter"]["value"]["mode"], "function")
@@ -388,6 +390,7 @@ class EditorControllerTests(unittest.TestCase):
             trash_star_count=12,
             trash_min_distance=5.5,
             trash_max_distance=28.0,
+            trash_min_star_distance=2.0,
         )
         self.controller.state.star_parameter.enabled = True
         self.controller.state.star_parameter.name = "Mass"
@@ -456,6 +459,7 @@ class EditorControllerTests(unittest.TestCase):
             self.assertEqual(self.controller.state.trash_star_count, 12)
             self.assertEqual(self.controller.state.trash_min_distance, 5.5)
             self.assertEqual(self.controller.state.trash_max_distance, 28.0)
+            self.assertEqual(self.controller.state.trash_min_star_distance, 2.0)
             self.assertEqual(self.controller.state.placement_circle_size.radius, 42.0)
             self.assertEqual(self.controller.last_config_save_path, input_path)
             self.assertTrue(self.controller.can_undo)
@@ -475,6 +479,7 @@ class EditorControllerTests(unittest.TestCase):
             trash_star_count=12,
             trash_min_distance=5.5,
             trash_max_distance=21.0,
+            trash_min_star_distance=1.0,
         )
         self.controller.state.star_parameter.enabled = False
         self.controller.state.star_parameter.name = "Old"
@@ -575,6 +580,7 @@ class EditorControllerTests(unittest.TestCase):
             "trash_star_count": 25,
             "trash_min_distance": 11.5,
             "trash_max_distance": 42.0,
+            "trash_min_star_distance": 6.5,
         }
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -599,6 +605,7 @@ class EditorControllerTests(unittest.TestCase):
             self.assertEqual(self.controller.state.trash_star_count, 25)
             self.assertEqual(self.controller.state.trash_min_distance, 11.5)
             self.assertEqual(self.controller.state.trash_max_distance, 42.0)
+            self.assertEqual(self.controller.state.trash_min_star_distance, 6.5)
             self.assertEqual(self.controller.state.placement_circle_size.radius, 15.0)
             self.assertEqual(self.controller.state.placement_rectangle_size.width, 21.0)
             self.assertEqual(self.controller.state.placement_function_size.function_expression, "x")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Generic, TypeVar
 
 from .generator import validate_cluster_size
 from .localization import get_localizer
@@ -27,7 +28,7 @@ from .shapes import function_size_from_parameters
 
 
 FORMAT_NAME = "generate_stars_cluster_configuration"
-FORMAT_VERSION = 4
+FORMAT_VERSION = 5
 DEFAULT_CLUSTER_CONFIGURATION_FILENAME = "cluster_configuration.json"
 
 
@@ -35,22 +36,40 @@ class ClusterConfigurationError(RuntimeError):
     """Raised when a cluster configuration file cannot be parsed or used."""
 
 
+T = TypeVar("T")
+
+
+@dataclass(frozen=True, slots=True)
+class OptionalValue(Generic[T]):
+    value: T | None = None
+
+    @property
+    def is_set(self) -> bool:
+        return self.value is not None
+
+    def resolve(self, default: T) -> T:
+        if self.value is None:
+            return default
+        return self.value
+
+
 @dataclass(slots=True)
 class LoadedClusterConfiguration:
     clusters: list[ClusterInstance]
-    placement_circle_size: CircleSize | None = None
-    placement_rectangle_size: RectangleSize | None = None
-    placement_function_size: FunctionSize | None = None
-    selected_cluster_ids: list[int] | None = None
-    next_cluster_id: int | None = None
-    total_cluster_stars: int | None = None
-    distribution_mode: DistributionMode | None = None
-    deviation_percent: float | None = None
-    star_parameter: StarParameterConfig | None = None
-    trash_star_count: int | None = None
-    trash_min_distance: float | None = None
-    trash_max_distance: float | None = None
-    star_parameter_function_body: str | None = None
+    placement_circle_size: OptionalValue[CircleSize] = OptionalValue()
+    placement_rectangle_size: OptionalValue[RectangleSize] = OptionalValue()
+    placement_function_size: OptionalValue[FunctionSize] = OptionalValue()
+    selected_cluster_ids: OptionalValue[list[int]] = OptionalValue()
+    next_cluster_id: OptionalValue[int] = OptionalValue()
+    total_cluster_stars: OptionalValue[int] = OptionalValue()
+    distribution_mode: OptionalValue[DistributionMode] = OptionalValue()
+    deviation_percent: OptionalValue[float] = OptionalValue()
+    star_parameter: OptionalValue[StarParameterConfig] = OptionalValue()
+    trash_star_count: OptionalValue[int] = OptionalValue()
+    trash_min_distance: OptionalValue[float] = OptionalValue()
+    trash_max_distance: OptionalValue[float] = OptionalValue()
+    trash_min_star_distance: OptionalValue[float] = OptionalValue()
+    star_parameter_function_body: OptionalValue[str] = OptionalValue()
 
 
 def _point_payload(point: Point) -> dict[str, float]:
@@ -134,6 +153,7 @@ def cluster_configuration_payload(state: AppState) -> dict[str, object]:
         "trash_star_count": state.trash_star_count,
         "trash_min_distance": state.trash_min_distance,
         "trash_max_distance": state.trash_max_distance,
+        "trash_min_star_distance": state.trash_min_star_distance,
     }
 
 
@@ -193,6 +213,7 @@ def parse_cluster_configuration_payload(payload: object) -> LoadedClusterConfigu
     trash_star_count = _optional_int_value(root.get("trash_star_count"), minimum=0)
     trash_min_distance = _optional_float_value(root.get("trash_min_distance"))
     trash_max_distance = _optional_float_value(root.get("trash_max_distance"))
+    trash_min_star_distance = _optional_float_value(root.get("trash_min_star_distance"))
 
     function_body_payload = root.get("star_parameter_function_body")
     if function_body_payload is None:
@@ -204,19 +225,20 @@ def parse_cluster_configuration_payload(payload: object) -> LoadedClusterConfigu
 
     return LoadedClusterConfiguration(
         clusters=clusters,
-        placement_circle_size=placement_circle_size,
-        placement_rectangle_size=placement_rectangle_size,
-        placement_function_size=placement_function_size,
-        selected_cluster_ids=selected_cluster_ids,
-        next_cluster_id=next_cluster_id,
-        total_cluster_stars=total_cluster_stars,
-        distribution_mode=distribution_mode,
-        deviation_percent=deviation_percent,
-        star_parameter=star_parameter,
-        trash_star_count=trash_star_count,
-        trash_min_distance=trash_min_distance,
-        trash_max_distance=trash_max_distance,
-        star_parameter_function_body=star_parameter_function_body,
+        placement_circle_size=OptionalValue(placement_circle_size),
+        placement_rectangle_size=OptionalValue(placement_rectangle_size),
+        placement_function_size=OptionalValue(placement_function_size),
+        selected_cluster_ids=OptionalValue(selected_cluster_ids),
+        next_cluster_id=OptionalValue(next_cluster_id),
+        total_cluster_stars=OptionalValue(total_cluster_stars),
+        distribution_mode=OptionalValue(distribution_mode),
+        deviation_percent=OptionalValue(deviation_percent),
+        star_parameter=OptionalValue(star_parameter),
+        trash_star_count=OptionalValue(trash_star_count),
+        trash_min_distance=OptionalValue(trash_min_distance),
+        trash_max_distance=OptionalValue(trash_max_distance),
+        trash_min_star_distance=OptionalValue(trash_min_star_distance),
+        star_parameter_function_body=OptionalValue(star_parameter_function_body),
     )
 
 

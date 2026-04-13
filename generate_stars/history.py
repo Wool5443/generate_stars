@@ -236,6 +236,7 @@ class EditableStateSnapshot:
     trash_star_count: int
     trash_min_distance: float
     trash_max_distance: float
+    trash_min_star_distance: float
 
 
 class HistoryManager:

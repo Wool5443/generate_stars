@@ -59,8 +59,16 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(get_localizer().text("ui.label.parameter_preview"), "Предпросмотр:")
         self.assertEqual(get_localizer().text("ui.label.max_edge_distance"), "Макс. расстояние от края")
         self.assertEqual(
+            get_localizer().text("ui.label.min_trash_star_distance"),
+            "Мин. расстояние между мусорными звездами",
+        )
+        self.assertEqual(
             get_localizer().text("error.trash_distance_range_invalid"),
             "Максимальное расстояние мусорных звезд должно быть больше или равно минимальному.",
+        )
+        self.assertEqual(
+            get_localizer().text("error.trash_star_distance_negative"),
+            "Минимальное расстояние между мусорными звездами не может быть отрицательным.",
         )
 
 

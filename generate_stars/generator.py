@@ -112,6 +112,8 @@ def validate_state(state: AppState) -> list[str]:
         errors.append(localizer.text("error.trash_distance_negative"))
     if state.trash_max_distance < 0.0:
         errors.append(localizer.text("error.trash_max_distance_negative"))
+    if state.trash_min_star_distance < 0.0:
+        errors.append(localizer.text("error.trash_star_distance_negative"))
     if state.trash_max_distance < state.trash_min_distance:
         errors.append(localizer.text("error.trash_distance_range_invalid"))
 
@@ -302,6 +304,7 @@ def generate_trash_points(
     count: int,
     min_edge_distance: float,
     max_edge_distance: float,
+    min_trash_star_distance: float,
     rng: random.Random,
     config: AppConfig | None = None,
 ) -> list[Point]:
@@ -330,6 +333,11 @@ def generate_trash_points(
             y=rng.uniform(bounds.min_y, bounds.max_y),
         )
         if not cluster_configs:
+            if min_trash_star_distance > 0.0 and any(
+                math.hypot(candidate.x - existing.x, candidate.y - existing.y) < min_trash_star_distance
+                for existing in points
+            ):
+                continue
             points.append(candidate)
             continue
 
@@ -337,8 +345,15 @@ def generate_trash_points(
             get_shape(cluster_config.shape_kind).edge_distance(candidate, cluster_config.center, cluster_config.size)
             for cluster_config in cluster_configs
         ]
-        if all(distance >= min_edge_distance for distance in edge_distances) and min(edge_distances) <= max_edge_distance:
-            points.append(candidate)
+        if not (all(distance >= min_edge_distance for distance in edge_distances) and min(edge_distances) <= max_edge_distance):
+            continue
+
+        if min_trash_star_distance > 0.0 and any(
+            math.hypot(candidate.x - existing.x, candidate.y - existing.y) < min_trash_star_distance for existing in points
+        ):
+            continue
+
+        points.append(candidate)
 
     if len(points) != count:
         raise GenerationError(get_localizer().text("error.trash_placement_failed"))
@@ -449,6 +464,7 @@ def generate_star_field(state: AppState, rng: random.Random | None = None) -> Ge
             count=state.trash_star_count,
             min_edge_distance=state.trash_min_distance,
             max_edge_distance=state.trash_max_distance,
+            min_trash_star_distance=state.trash_min_star_distance,
             rng=rng,
             config=config,
         )

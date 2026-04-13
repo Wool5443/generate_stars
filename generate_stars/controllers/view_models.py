@@ -99,6 +99,7 @@ class TrashPanelViewModel:
     count: int
     min_distance: float
     max_distance: float
+    min_star_distance: float
     note: str
 
 

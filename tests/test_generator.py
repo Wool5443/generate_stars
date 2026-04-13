@@ -77,12 +77,12 @@ def make_cluster(
 
 
 class GeneratorTests(unittest.TestCase):
-    def test_cluster_size_defaults_are_ten(self) -> None:
+    def test_cluster_size_defaults_follow_config(self) -> None:
         circle = CircleSize()
         rectangle = RectangleSize()
-        self.assertEqual(circle.radius, 10.0)
-        self.assertEqual(rectangle.width, 10.0)
-        self.assertEqual(rectangle.height, 10.0)
+        self.assertEqual(circle.radius, 5.0)
+        self.assertEqual(rectangle.width, 5.0)
+        self.assertEqual(rectangle.height, 5.0)
 
     def test_equal_distribution_preserves_total(self) -> None:
         rng = random.Random(7)
@@ -237,6 +237,7 @@ class GeneratorTests(unittest.TestCase):
             count=50,
             min_edge_distance=15.0,
             max_edge_distance=40.0,
+            min_trash_star_distance=0.0,
             rng=rng,
         )
         circle = get_shape(ShapeKind.CIRCLE)
@@ -265,6 +266,7 @@ class GeneratorTests(unittest.TestCase):
             count=40,
             min_edge_distance=12.0,
             max_edge_distance=30.0,
+            min_trash_star_distance=0.0,
             rng=rng,
         )
         self.assertEqual(len(points), 40)
@@ -291,6 +293,7 @@ class GeneratorTests(unittest.TestCase):
             count=40,
             min_edge_distance=6.0,
             max_edge_distance=20.0,
+            min_trash_star_distance=0.0,
             rng=rng,
         )
         self.assertEqual(len(points), 40)
@@ -306,9 +309,29 @@ class GeneratorTests(unittest.TestCase):
             count=10,
             min_edge_distance=5.0,
             max_edge_distance=7.0,
+            min_trash_star_distance=0.0,
             rng=rng,
         )
         self.assertEqual(len(points), 10)
+
+    def test_trash_points_respect_min_distance_between_each_other(self) -> None:
+        rng = random.Random(24)
+        cluster = ClusterConfig(
+            center=Point(0.0, 0.0),
+            size=CircleSize(radius=50.0),
+        )
+        points = generate_trash_points(
+            cluster_configs=[cluster],
+            count=25,
+            min_edge_distance=5.0,
+            max_edge_distance=30.0,
+            min_trash_star_distance=4.0,
+            rng=rng,
+        )
+        self.assertEqual(len(points), 25)
+        for index, point in enumerate(points):
+            for other in points[index + 1 :]:
+                self.assertGreaterEqual(math.hypot(point.x - other.x, point.y - other.y), 4.0)
 
     def test_export_format_uses_commas(self) -> None:
         payload = format_points_for_export([Point(1.25, -3.5), Point(0.0, 2.125)], precision=3)
@@ -442,6 +465,15 @@ class GeneratorTests(unittest.TestCase):
         )
         self.assertIn(
             "Trash star max distance must be greater than or equal to min distance.",
+            validate_state(state),
+        )
+
+    def test_validate_state_rejects_negative_trash_star_spacing(self) -> None:
+        state = AppState(
+            trash_min_star_distance=-1.0,
+        )
+        self.assertIn(
+            "Trash star minimum distance between trash stars cannot be negative.",
             validate_state(state),
         )
 

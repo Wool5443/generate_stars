@@ -593,6 +593,12 @@ class EditorController:
         self.clear_status()
         self._notify()
 
+    def set_trash_min_star_distance(self, value: float, source: object) -> None:
+        self.ensure_continuous_history(source)
+        self.state.trash_min_star_distance = value
+        self.clear_status()
+        self._notify()
+
     def set_manual_count(self, cluster_id: int, value: int, source: object) -> None:
         cluster = self.state.cluster_by_id(cluster_id)
         if cluster is None:
@@ -656,45 +662,42 @@ class EditorController:
             loaded_cluster_ids = {cluster.cluster_id for cluster in self.state.clusters}
             max_cluster_id = max(loaded_cluster_ids) if loaded_cluster_ids else 0
 
-            if loaded_configuration.selected_cluster_ids is None:
-                self.state.selected_cluster_ids = []
-            else:
-                self.state.selected_cluster_ids = [
-                    cluster_id
-                    for cluster_id in loaded_configuration.selected_cluster_ids
-                    if cluster_id in loaded_cluster_ids
-                ]
+            selected_cluster_ids = loaded_configuration.selected_cluster_ids.resolve([])
+            self.state.selected_cluster_ids = [
+                cluster_id
+                for cluster_id in selected_cluster_ids
+                if cluster_id in loaded_cluster_ids
+            ]
 
-            if loaded_configuration.next_cluster_id is None:
-                self.state.next_cluster_id = max_cluster_id + 1
-            else:
-                self.state.next_cluster_id = max(
-                    loaded_configuration.next_cluster_id,
-                    max_cluster_id + 1,
+            requested_next_cluster_id = loaded_configuration.next_cluster_id.resolve(max_cluster_id + 1)
+            self.state.next_cluster_id = max(requested_next_cluster_id, max_cluster_id + 1)
+
+            self.state.placement_circle_size = loaded_configuration.placement_circle_size.resolve(
+                self.state.placement_circle_size
+            ).copy()
+            self.state.placement_rectangle_size = loaded_configuration.placement_rectangle_size.resolve(
+                self.state.placement_rectangle_size
+            ).copy()
+            self.state.placement_function_size = loaded_configuration.placement_function_size.resolve(
+                self.state.placement_function_size
+            ).copy()
+
+            self.state.total_cluster_stars = loaded_configuration.total_cluster_stars.resolve(self.state.total_cluster_stars)
+            self.state.distribution_mode = loaded_configuration.distribution_mode.resolve(self.state.distribution_mode)
+            self.state.deviation_percent = loaded_configuration.deviation_percent.resolve(self.state.deviation_percent)
+            self.state.trash_star_count = loaded_configuration.trash_star_count.resolve(self.state.trash_star_count)
+            self.state.trash_min_distance = loaded_configuration.trash_min_distance.resolve(self.state.trash_min_distance)
+            self.state.trash_max_distance = loaded_configuration.trash_max_distance.resolve(self.state.trash_max_distance)
+            self.state.trash_min_star_distance = loaded_configuration.trash_min_star_distance.resolve(
+                self.state.trash_min_star_distance
+            )
+
+            if loaded_configuration.star_parameter.is_set:
+                self.state.star_parameter = loaded_configuration.star_parameter.resolve(self.state.star_parameter).copy()
+            elif loaded_configuration.star_parameter_function_body.is_set:
+                self.state.star_parameter.function_body = loaded_configuration.star_parameter_function_body.resolve(
+                    self.state.star_parameter.function_body
                 )
-
-            if loaded_configuration.placement_circle_size is not None:
-                self.state.placement_circle_size = loaded_configuration.placement_circle_size.copy()
-            if loaded_configuration.placement_rectangle_size is not None:
-                self.state.placement_rectangle_size = loaded_configuration.placement_rectangle_size.copy()
-            if loaded_configuration.placement_function_size is not None:
-                self.state.placement_function_size = loaded_configuration.placement_function_size.copy()
-            if loaded_configuration.total_cluster_stars is not None:
-                self.state.total_cluster_stars = loaded_configuration.total_cluster_stars
-            if loaded_configuration.distribution_mode is not None:
-                self.state.distribution_mode = loaded_configuration.distribution_mode
-            if loaded_configuration.deviation_percent is not None:
-                self.state.deviation_percent = loaded_configuration.deviation_percent
-            if loaded_configuration.star_parameter is not None:
-                self.state.star_parameter = loaded_configuration.star_parameter.copy()
-            elif loaded_configuration.star_parameter_function_body is not None:
-                self.state.star_parameter.function_body = loaded_configuration.star_parameter_function_body
-            if loaded_configuration.trash_star_count is not None:
-                self.state.trash_star_count = loaded_configuration.trash_star_count
-            if loaded_configuration.trash_min_distance is not None:
-                self.state.trash_min_distance = loaded_configuration.trash_min_distance
-            if loaded_configuration.trash_max_distance is not None:
-                self.state.trash_max_distance = loaded_configuration.trash_max_distance
 
         self._run_immediate_edit(mutate)
         self._last_config_save_path = input_path
@@ -1102,6 +1105,7 @@ class EditorController:
                 count=self.state.trash_star_count,
                 min_distance=self.state.trash_min_distance,
                 max_distance=self.state.trash_max_distance,
+                min_star_distance=self.state.trash_min_star_distance,
                 note=localizer.text("text.trash_note"),
             ),
             status=status,
