@@ -3,8 +3,9 @@ from __future__ import annotations
 from argparse import ArgumentParser
 from pathlib import Path
 import platform
-import shutil
 import sys
+import tarfile
+import zipfile
 
 import PyInstaller.__main__
 
@@ -50,11 +51,20 @@ def create_archive(target: str) -> Path:
 
     archive_stem = DIST_DIR / f"generate-stars-{target}-{normalized_arch()}"
     if target == "windows":
-        archive_path = Path(shutil.make_archive(str(archive_stem), "zip", root_dir=DIST_DIR, base_dir=BUNDLE_DIR.name))
+        archive_path = archive_stem.with_suffix(".zip")
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for entry in sorted(BUNDLE_DIR.rglob("*")):
+                relative = entry.relative_to(BUNDLE_DIR).as_posix()
+                if entry.is_dir():
+                    archive.writestr(f"{relative}/", "")
+                    continue
+                archive.write(entry, arcname=relative)
     else:
-        archive_path = Path(
-            shutil.make_archive(str(archive_stem), "xztar", root_dir=DIST_DIR, base_dir=BUNDLE_DIR.name)
-        )
+        archive_path = archive_stem.with_suffix(".tar.xz")
+        with tarfile.open(archive_path, "w:xz") as archive:
+            for entry in sorted(BUNDLE_DIR.rglob("*")):
+                relative = entry.relative_to(BUNDLE_DIR)
+                archive.add(entry, arcname=str(relative), recursive=False)
     return archive_path
 
 
