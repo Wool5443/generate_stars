@@ -43,6 +43,7 @@ a = Analysis(
         "pydoc",
         "distutils",
         "setuptools",
+        "pkg_resources",
         "ensurepip",
         "idlelib",
         "turtle",
