@@ -15,7 +15,7 @@ from ..generator import (
     validate_cluster_size,
     validate_state,
 )
-from ..history import HistoryManager
+from ..history import EditableStateSnapshot, HistoryManager
 from ..localization import get_localizer
 from ..models import (
     AppState,
@@ -35,6 +35,11 @@ from ..preferences import (
     load_last_save_path,
     save_last_config_save_path,
     save_last_save_path,
+)
+from ..project_state import (
+    PROJECT_CONFIG_EXTENSION,
+    load_project_state,
+    save_project_state,
 )
 from ..shapes import (
     function_size_from_parameters,
@@ -68,6 +73,11 @@ class EditorSessionState:
     clipboard_paste_count: int = 0
     status_text: str = ""
     status_kind: str = "neutral"
+    project_directory: Path | None = None
+    project_config_paths: tuple[Path, ...] = field(default_factory=tuple)
+    active_project_config_path: Path | None = None
+    scene_bound_config_path: Path | None = None
+    project_export_paths: dict[Path, Path] = field(default_factory=dict)
 
 
 class EditorController:
@@ -81,6 +91,7 @@ class EditorController:
         self._continuous_history_source: object | None = None
         self._change_listener: Callable[[], None] | None = None
         self._refresh_function_size(self.state.placement_function_size)
+        self._persisted_state_snapshot: EditableStateSnapshot = self.state.to_editable_snapshot()
 
     @property
     def active_tool(self) -> CanvasTool:
@@ -93,6 +104,26 @@ class EditorController:
     @property
     def last_config_save_path(self) -> Path | None:
         return self._last_config_save_path
+
+    @property
+    def project_directory(self) -> Path | None:
+        return self.session.project_directory
+
+    @property
+    def project_config_paths(self) -> tuple[Path, ...]:
+        return self.session.project_config_paths
+
+    @property
+    def active_project_config_path(self) -> Path | None:
+        return self.session.active_project_config_path
+
+    @property
+    def has_project(self) -> bool:
+        return self.session.project_directory is not None
+
+    @property
+    def scene_bound_config_path(self) -> Path | None:
+        return self.session.scene_bound_config_path
 
     @property
     def can_undo(self) -> bool:
@@ -128,6 +159,82 @@ class EditorController:
             self.session.status_kind = "neutral"
         if notify:
             self._notify()
+
+    def _mark_state_persisted(self) -> None:
+        self._persisted_state_snapshot = self.state.to_editable_snapshot()
+
+    def scene_is_dirty(self) -> bool:
+        return self.state.to_editable_snapshot() != self._persisted_state_snapshot
+
+    def _resolve_path(self, path: Path) -> Path:
+        return path.expanduser().resolve()
+
+    def _is_project_config_file(self, path: Path) -> bool:
+        return path.is_file() and path.name.lower().endswith(PROJECT_CONFIG_EXTENSION)
+
+    def _scan_project_configs(self, project_dir: Path) -> tuple[Path, ...]:
+        configs = [
+            self._resolve_path(candidate)
+            for candidate in project_dir.iterdir()
+            if self._is_project_config_file(candidate)
+        ]
+        return tuple(sorted(configs, key=lambda item: item.name.lower()))
+
+    def _refresh_project_configs(self) -> None:
+        project_dir = self.session.project_directory
+        if project_dir is None:
+            self.session.project_config_paths = ()
+            return
+        self.session.project_config_paths = self._scan_project_configs(project_dir)
+
+    def _remember_project_export_path(self, config_path: Path, export_path: Path) -> None:
+        self.session.project_export_paths[self._resolve_path(config_path)] = self._resolve_path(export_path)
+
+    def _load_project_sidecar(self, project_dir: Path) -> Path | None:
+        loaded = load_project_state(project_dir)
+        self.session.project_export_paths = {
+            self._resolve_path(config_path): self._resolve_path(export_path)
+            for config_path, export_path in loaded.per_config_last_export_path.items()
+        }
+        if loaded.last_active_config is None:
+            return None
+        return self._resolve_path(loaded.last_active_config)
+
+    def _save_project_sidecar(self) -> None:
+        project_dir = self.session.project_directory
+        if project_dir is None:
+            return
+        save_project_state(
+            project_dir,
+            last_active_config=self.session.active_project_config_path,
+            per_config_last_export_path=self.session.project_export_paths,
+        )
+
+    def _next_untitled_project_config_path(self) -> Path:
+        project_dir = self.session.project_directory
+        if project_dir is None:
+            raise GenerationError(get_localizer().text("error.project_not_open"))
+        index = 1
+        while True:
+            candidate = project_dir / f"untitled-{index}{PROJECT_CONFIG_EXTENSION}"
+            if not candidate.exists():
+                return candidate
+            index += 1
+
+    def preferred_export_path(self) -> Path | None:
+        active_project_config = self.session.active_project_config_path
+        project_dir = self.session.project_directory
+        if active_project_config is not None and project_dir is not None:
+            remembered = self.session.project_export_paths.get(self._resolve_path(active_project_config))
+            if remembered is not None:
+                return remembered
+            config_name = active_project_config.name
+            if config_name.endswith(PROJECT_CONFIG_EXTENSION):
+                config_name = config_name[: -len(PROJECT_CONFIG_EXTENSION)]
+            else:
+                config_name = active_project_config.stem
+            return project_dir / f"{config_name}.txt"
+        return self._last_save_path
 
     def ensure_continuous_history(self, source: object) -> None:
         if self._continuous_history_source is source:
@@ -609,6 +716,109 @@ class EditorController:
         self.clear_status()
         self._notify()
 
+    def _save_scene_to_config_path(self, output_path: Path, *, set_status: bool = True) -> None:
+        localizer = get_localizer()
+        resolved_output_path = self._resolve_path(output_path)
+        save_cluster_configuration(self.state, resolved_output_path)
+        self._last_config_save_path = resolved_output_path
+        self.session.scene_bound_config_path = resolved_output_path
+        self._mark_state_persisted()
+        try:
+            save_last_config_save_path(resolved_output_path)
+        except OSError:
+            pass
+
+        project_dir = self.session.project_directory
+        if project_dir is not None and project_dir == resolved_output_path.parent and self._is_project_config_file(resolved_output_path):
+            self._refresh_project_configs()
+
+        if set_status:
+            self.session.status_text = localizer.text(
+                "status.configuration_saved",
+                filename=resolved_output_path.name,
+            )
+            self.session.status_kind = "success"
+            self._notify()
+
+    def _autosave_before_project_switch(self) -> None:
+        if not self.scene_is_dirty():
+            return
+        autosave_target = self.session.scene_bound_config_path
+        if autosave_target is None:
+            autosave_target = self._next_untitled_project_config_path()
+        self._save_scene_to_config_path(autosave_target, set_status=False)
+
+    def open_project_folder(self, folder_path: Path) -> int:
+        localizer = get_localizer()
+        resolved_folder = self._resolve_path(folder_path)
+        if not resolved_folder.is_dir():
+            raise GenerationError(localizer.text("error.project_folder_invalid"))
+
+        self.finalize_history_transaction()
+        self.session.project_directory = resolved_folder
+        self._refresh_project_configs()
+        remembered_active = self._load_project_sidecar(resolved_folder)
+
+        available = list(self.session.project_config_paths)
+        remembered_in_list = remembered_active in available if remembered_active is not None else False
+        target = remembered_active if remembered_in_list else (available[0] if available else None)
+        self.session.active_project_config_path = target
+
+        if target is None:
+            self.session.scene_bound_config_path = None
+            self._save_project_sidecar()
+            self.set_status(localizer.text("status.project_opened_no_configs", folder=resolved_folder.name))
+            return 0
+
+        loaded_count = self.switch_active_project_config(target)
+        self.session.status_text = localizer.text(
+            "status.project_opened",
+            count=len(available),
+            folder=resolved_folder.name,
+        )
+        self.session.status_kind = "success"
+        self._notify()
+        return loaded_count
+
+    def switch_active_project_config(self, target_path: Path, *, force_reload: bool = False) -> int:
+        localizer = get_localizer()
+        project_dir = self.session.project_directory
+        if project_dir is None:
+            raise GenerationError(localizer.text("error.project_not_open"))
+
+        resolved_target = self._resolve_path(target_path)
+        if resolved_target not in self.session.project_config_paths:
+            raise GenerationError(localizer.text("error.project_config_missing"))
+
+        if (
+            not force_reload
+            and self.session.active_project_config_path == resolved_target
+            and self.session.scene_bound_config_path == resolved_target
+            and not self.scene_is_dirty()
+        ):
+            return len(self.state.clusters)
+
+        self.finalize_history_transaction()
+        self._autosave_before_project_switch()
+        loaded_count = self.import_cluster_configuration_from_path(resolved_target)
+        self.session.active_project_config_path = resolved_target
+        self.session.scene_bound_config_path = resolved_target
+        self._save_project_sidecar()
+        self.session.status_text = localizer.text(
+            "status.configuration_loaded",
+            count=loaded_count,
+            filename=resolved_target.name,
+        )
+        self.session.status_kind = "success"
+        self._notify()
+        return loaded_count
+
+    def reload_active_project_config(self) -> int:
+        active_path = self.session.active_project_config_path
+        if active_path is None:
+            raise GenerationError(get_localizer().text("error.project_no_active_config"))
+        return self.switch_active_project_config(active_path, force_reload=True)
+
     def snapshot_state_for_generation(self) -> AppState:
         snapshot = self.state.to_editable_snapshot()
         state_copy = AppState()
@@ -617,15 +827,24 @@ class EditorController:
 
     def complete_export(self, output_path: Path, star_count: int, *, notify: bool = True) -> None:
         localizer = get_localizer()
-        self._last_save_path = output_path
-        try:
-            save_last_save_path(output_path)
-        except OSError:
-            pass
+        resolved_output_path = self._resolve_path(output_path)
+        self._last_save_path = resolved_output_path
+        active_project_config = self.session.active_project_config_path
+        if self.session.project_directory is not None and active_project_config is not None:
+            self._remember_project_export_path(active_project_config, resolved_output_path)
+            try:
+                self._save_project_sidecar()
+            except OSError:
+                pass
+        else:
+            try:
+                save_last_save_path(resolved_output_path)
+            except OSError:
+                pass
         self.session.status_text = localizer.text(
             "status.saved",
             count=star_count,
-            filename=output_path.name,
+            filename=resolved_output_path.name,
         )
         self.session.status_kind = "success"
         if notify:
@@ -646,19 +865,11 @@ class EditorController:
         return len(generated.stars)
 
     def export_cluster_configuration_to_path(self, output_path: Path) -> None:
-        localizer = get_localizer()
-        save_cluster_configuration(self.state, output_path)
-        self._last_config_save_path = output_path
-        try:
-            save_last_config_save_path(output_path)
-        except OSError:
-            pass
-        self.session.status_text = localizer.text(
-            "status.configuration_saved",
-            filename=output_path.name,
-        )
-        self.session.status_kind = "success"
-        self._notify()
+        self._save_scene_to_config_path(output_path, set_status=True)
+        resolved_output_path = self._resolve_path(output_path)
+        if self.session.project_directory is not None and resolved_output_path in self.session.project_config_paths:
+            self.session.active_project_config_path = resolved_output_path
+            self._save_project_sidecar()
 
     def import_cluster_configuration_from_path(self, input_path: Path) -> int:
         localizer = get_localizer()
@@ -709,16 +920,25 @@ class EditorController:
                     self.state.star_parameter.function_body
                 )
 
+        resolved_input_path = self._resolve_path(input_path)
         self._run_immediate_edit(mutate)
-        self._last_config_save_path = input_path
+        self._last_config_save_path = resolved_input_path
+        self.session.scene_bound_config_path = resolved_input_path
+        self._mark_state_persisted()
+        project_dir = self.session.project_directory
+        if project_dir is not None and project_dir == resolved_input_path.parent and self._is_project_config_file(resolved_input_path):
+            self._refresh_project_configs()
+            if resolved_input_path in self.session.project_config_paths:
+                self.session.active_project_config_path = resolved_input_path
+                self._save_project_sidecar()
         try:
-            save_last_config_save_path(input_path)
+            save_last_config_save_path(resolved_input_path)
         except OSError:
             pass
         self.session.status_text = localizer.text(
             "status.configuration_loaded",
             count=len(loaded_configuration.clusters),
-            filename=input_path.name,
+            filename=resolved_input_path.name,
         )
         self.session.status_kind = "success"
         self._notify()

@@ -20,6 +20,7 @@ from generate_stars.models import (
     ShapeKind,
     StarParameterMode,
 )
+from generate_stars.project_state import PROJECT_CONFIG_EXTENSION
 from generate_stars.shapes import function_size_from_parameters
 
 
@@ -735,6 +736,97 @@ class EditorControllerTests(unittest.TestCase):
             self.assertEqual(self.controller.state.next_cluster_id, 2)
             self.assertEqual(self.controller.state.total_cluster_stars, 25)
             self.assertFalse(self.controller.can_undo)
+
+    def test_open_project_folder_scans_only_project_extension(self) -> None:
+        payload = {
+            "format": "generate_stars_cluster_configuration",
+            "version": 5,
+            "clusters": [
+                {
+                    "shape_kind": "circle",
+                    "center": {"x": 0.0, "y": 0.0},
+                    "size": {"radius": 5.0},
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir)
+            (project_dir / f"a{PROJECT_CONFIG_EXTENSION}").write_text(json.dumps(payload), encoding="utf-8")
+            (project_dir / f"b{PROJECT_CONFIG_EXTENSION}").write_text(json.dumps(payload), encoding="utf-8")
+            (project_dir / "ignored.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            loaded_count = self.controller.open_project_folder(project_dir)
+
+            self.assertEqual(loaded_count, 1)
+            self.assertTrue(self.controller.has_project)
+            self.assertEqual(len(self.controller.project_config_paths), 2)
+            self.assertEqual(self.controller.project_config_paths[0].name, f"a{PROJECT_CONFIG_EXTENSION}")
+            self.assertEqual(self.controller.project_config_paths[1].name, f"b{PROJECT_CONFIG_EXTENSION}")
+            self.assertEqual(self.controller.active_project_config_path, self.controller.project_config_paths[0])
+            self.assertEqual(self.controller.scene_bound_config_path, self.controller.project_config_paths[0])
+
+    def test_switch_project_config_autosaves_unbound_dirty_scene(self) -> None:
+        payload = {
+            "format": "generate_stars_cluster_configuration",
+            "version": 5,
+            "clusters": [
+                {
+                    "shape_kind": "circle",
+                    "center": {"x": 1.0, "y": 2.0},
+                    "size": {"radius": 3.0},
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir)
+            first = project_dir / f"first{PROJECT_CONFIG_EXTENSION}"
+            second = project_dir / f"second{PROJECT_CONFIG_EXTENSION}"
+            first.write_text(json.dumps(payload), encoding="utf-8")
+            second.write_text(json.dumps(payload), encoding="utf-8")
+
+            self.controller.open_project_folder(project_dir)
+            self.controller.state.total_cluster_stars += 7
+            self.controller.session.scene_bound_config_path = None
+
+            self.controller.switch_active_project_config(second)
+
+            autosaved = project_dir / f"untitled-1{PROJECT_CONFIG_EXTENSION}"
+            self.assertTrue(autosaved.exists())
+            self.assertIn(autosaved.resolve(), self.controller.project_config_paths)
+            self.assertEqual(self.controller.active_project_config_path, second.resolve())
+            self.assertEqual(self.controller.scene_bound_config_path, second.resolve())
+
+    def test_preferred_export_path_is_remembered_per_project_config(self) -> None:
+        payload = {
+            "format": "generate_stars_cluster_configuration",
+            "version": 5,
+            "clusters": [
+                {
+                    "shape_kind": "circle",
+                    "center": {"x": 0.0, "y": 0.0},
+                    "size": {"radius": 1.0},
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir)
+            first = project_dir / f"one{PROJECT_CONFIG_EXTENSION}"
+            second = project_dir / f"two{PROJECT_CONFIG_EXTENSION}"
+            first.write_text(json.dumps(payload), encoding="utf-8")
+            second.write_text(json.dumps(payload), encoding="utf-8")
+
+            self.controller.open_project_folder(project_dir)
+            first_export = project_dir / "one-export.txt"
+            second_export = project_dir / "two-export.txt"
+            self.controller.complete_export(first_export, 3)
+            self.controller.switch_active_project_config(second)
+            self.controller.complete_export(second_export, 5)
+            self.controller.switch_active_project_config(first)
+
+            self.assertEqual(self.controller.preferred_export_path(), first_export.resolve())
 
 
 if __name__ == "__main__":

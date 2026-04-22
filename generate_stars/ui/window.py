@@ -16,6 +16,7 @@ from ..controllers.editor_controller import EditorController
 from ..generator import GenerationError, format_points_for_export, generate_star_field, validate_state
 from ..localization import get_localizer
 from ..models import AppState, CanvasTool, DistributionMode, FunctionOrientation, ShapeKind, StarParameterMode
+from ..project_state import PROJECT_CONFIG_EXTENSION
 from .canvas import StarCanvas
 from .sidebar import SidebarView
 from .toolbar import CanvasToolbarView
@@ -33,6 +34,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.controller = controller
         self._startup_config_issues = list(config_issues)
         self._syncing_ui = False
+        self._syncing_project_selector = False
         self._space_pressed = False
         self._generation_in_progress = False
         super().__init__(application=application, title=config.app.title)
@@ -84,10 +86,21 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self.config_popover_box.set_margin_bottom(self.config.ui.sidebar_margin)
         self.config_popover_box.set_margin_start(self.config.ui.sidebar_margin)
         self.config_popover_box.set_margin_end(self.config.ui.sidebar_margin)
+        self.open_project_button = Gtk.Button(label=localizer.text("ui.open_project_folder"))
         self.config_save_button = Gtk.Button(label=localizer.text("ui.save_configuration"))
         self.config_load_button = Gtk.Button(label=localizer.text("ui.load_configuration"))
+        self.project_folder_label = Gtk.Label(xalign=0.0)
+        self.project_folder_label.set_wrap(True)
+        self.project_active_label = Gtk.Label(label=localizer.text("ui.project_configs"), xalign=0.0)
+        self.project_config_selector = Gtk.ComboBoxText()
+        self.project_controls_separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.config_popover_box.append(self.open_project_button)
         self.config_popover_box.append(self.config_save_button)
         self.config_popover_box.append(self.config_load_button)
+        self.config_popover_box.append(self.project_controls_separator)
+        self.config_popover_box.append(self.project_folder_label)
+        self.config_popover_box.append(self.project_active_label)
+        self.config_popover_box.append(self.project_config_selector)
         self.config_popover.set_child(self.config_popover_box)
         self.config_menu_button.set_popover(self.config_popover)
         self.header_bar.pack_end(self.config_menu_button)
@@ -142,8 +155,10 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         trash_panel.trash_min_star_distance_spin.connect("value-changed", self._on_trash_min_star_distance_changed)
 
         self.help_button.connect("clicked", self._on_help_clicked)
+        self.open_project_button.connect("clicked", self._on_open_project_clicked)
         self.config_save_button.connect("clicked", self._on_save_config_clicked)
         self.config_load_button.connect("clicked", self._on_load_config_clicked)
+        self.project_config_selector.connect("changed", self._on_project_config_changed)
         self.sidebar_view.generate_button.connect("clicked", self._on_generate_clicked)
 
     def focus_canvas(self) -> None:
@@ -187,6 +202,7 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         try:
             self.toolbar_view.apply(view_model.toolbar)
             self.sidebar_view.apply(view_model, generation_in_progress=self._generation_in_progress)
+            self._refresh_project_controls()
         finally:
             self._syncing_ui = False
         self.canvas.queue_draw()
@@ -558,9 +574,10 @@ class StarClusterWindow(Gtk.ApplicationWindow):
             localizer.text("window.cancel_button"),
         )
         dialog.set_modal(True)
+        preferred_export_path = self.controller.preferred_export_path()
         self._configure_save_dialog(
             dialog,
-            self.controller.last_save_path,
+            preferred_export_path,
             self.config.defaults.default_save_filename,
         )
         dialog.connect("response", self._on_save_response)
@@ -569,7 +586,20 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_save_config_clicked(self, button: Gtk.Button) -> None:
         self.config_popover.popdown()
         self.controller.finalize_history_transaction()
+        if self.controller.has_project and self.controller.active_project_config_path is not None:
+            try:
+                self.controller.export_cluster_configuration_to_path(self.controller.active_project_config_path)
+            except (GenerationError, OSError) as exc:
+                self.controller.set_status(str(exc), "error")
+                self._show_error_dialog(str(exc))
+            return
+
         localizer = get_localizer()
+        default_path = self.controller.last_config_save_path
+        fallback_filename = DEFAULT_CLUSTER_CONFIGURATION_FILENAME
+        if self.controller.has_project:
+            default_path = self.controller.project_directory
+            fallback_filename = f"untitled-1{PROJECT_CONFIG_EXTENSION}"
         dialog = Gtk.FileChooserNative.new(
             localizer.text("window.save_config_dialog_title"),
             self,
@@ -580,8 +610,8 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         dialog.set_modal(True)
         self._configure_save_dialog(
             dialog,
-            self.controller.last_config_save_path,
-            DEFAULT_CLUSTER_CONFIGURATION_FILENAME,
+            default_path,
+            fallback_filename,
         )
         dialog.connect("response", self._on_save_config_response)
         dialog.show()
@@ -589,6 +619,16 @@ class StarClusterWindow(Gtk.ApplicationWindow):
     def _on_load_config_clicked(self, button: Gtk.Button) -> None:
         self.config_popover.popdown()
         self.controller.finalize_history_transaction()
+        if self.controller.has_project and self.controller.active_project_config_path is not None:
+            try:
+                self.canvas.cancel_polygon_draft()
+                self.controller.reload_active_project_config()
+                self.focus_canvas()
+            except (GenerationError, OSError) as exc:
+                self.controller.set_status(str(exc), "error")
+                self._show_error_dialog(str(exc))
+            return
+
         localizer = get_localizer()
         dialog = Gtk.FileChooserNative.new(
             localizer.text("window.load_config_dialog_title"),
@@ -601,6 +641,94 @@ class StarClusterWindow(Gtk.ApplicationWindow):
         self._configure_open_dialog(dialog, self.controller.last_config_save_path)
         dialog.connect("response", self._on_load_config_response)
         dialog.show()
+
+    def _on_open_project_clicked(self, button: Gtk.Button) -> None:
+        self.config_popover.popdown()
+        self.controller.finalize_history_transaction()
+        localizer = get_localizer()
+        dialog = Gtk.FileChooserNative.new(
+            localizer.text("window.open_project_folder_dialog_title"),
+            self,
+            Gtk.FileChooserAction.SELECT_FOLDER,
+            localizer.text("window.open_button"),
+            localizer.text("window.cancel_button"),
+        )
+        dialog.set_modal(True)
+        if self.controller.project_directory is not None:
+            dialog.set_current_folder(Gio.File.new_for_path(str(self.controller.project_directory)))
+        dialog.connect("response", self._on_project_folder_response)
+        dialog.show()
+
+    def _on_project_folder_response(self, dialog: Gtk.FileChooserNative, response: int) -> None:
+        try:
+            if response != Gtk.ResponseType.ACCEPT:
+                self.controller.clear_status(notify=True)
+                return
+
+            file = dialog.get_file()
+            if file is None or file.get_path() is None:
+                raise GenerationError(get_localizer().text("window.choose_local_path"))
+
+            self.canvas.cancel_polygon_draft()
+            self.controller.open_project_folder(Path(file.get_path()))
+            self.focus_canvas()
+        except (GenerationError, OSError) as exc:
+            self.controller.set_status(str(exc), "error")
+            self._show_error_dialog(str(exc))
+        finally:
+            dialog.destroy()
+
+    def _on_project_config_changed(self, combo: Gtk.ComboBoxText) -> None:
+        if self._syncing_ui or self._syncing_project_selector:
+            return
+        selected_path = combo.get_active_id()
+        if not selected_path:
+            return
+        try:
+            self.canvas.cancel_polygon_draft()
+            self.controller.switch_active_project_config(Path(selected_path))
+            self.focus_canvas()
+        except (GenerationError, OSError) as exc:
+            self.controller.set_status(str(exc), "error")
+            self._show_error_dialog(str(exc))
+
+    def _refresh_project_controls(self) -> None:
+        localizer = get_localizer()
+        has_project = self.controller.has_project
+        project_dir = self.controller.project_directory
+        project_configs = self.controller.project_config_paths
+        active_config = self.controller.active_project_config_path
+
+        self.project_controls_separator.set_visible(has_project)
+        self.project_folder_label.set_visible(has_project)
+        self.project_active_label.set_visible(has_project)
+        self.project_config_selector.set_visible(has_project)
+
+        if not has_project or project_dir is None:
+            self.project_folder_label.set_text("")
+            self._syncing_project_selector = True
+            try:
+                self.project_config_selector.remove_all()
+            finally:
+                self._syncing_project_selector = False
+            return
+
+        self.project_folder_label.set_text(
+            localizer.text("ui.project_folder_value", folder=project_dir.name)
+        )
+        self._syncing_project_selector = True
+        try:
+            self.project_config_selector.remove_all()
+            for config_path in project_configs:
+                self.project_config_selector.append(str(config_path), config_path.name)
+            if active_config is not None:
+                self.project_config_selector.set_active_id(str(active_config))
+            elif project_configs:
+                self.project_config_selector.set_active(0)
+            else:
+                self.project_config_selector.set_active(-1)
+        finally:
+            self._syncing_project_selector = False
 
     def _on_help_clicked(self, button: Gtk.Button) -> None:
         self._show_help_dialog()
@@ -670,7 +798,11 @@ class StarClusterWindow(Gtk.ApplicationWindow):
                 raise GenerationError(get_localizer().text("window.choose_local_path"))
 
             output_path = Path(file.get_path())
-            if output_path.suffix.lower() != ".json":
+            if self.controller.has_project:
+                suffix = PROJECT_CONFIG_EXTENSION
+                if not output_path.name.lower().endswith(suffix):
+                    output_path = Path(f"{output_path}{suffix}")
+            elif output_path.suffix.lower() != ".json":
                 output_path = output_path.with_suffix(".json") if output_path.suffix else Path(f"{output_path}.json")
 
             self.controller.export_cluster_configuration_to_path(output_path)
