@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Generate stars
+Comment=Convert non-negative integers between bases
+Exec=env python3 /home/twenty/Programming/generate_stars/generate_stars_launcher.py
+Icon=/home/twenty/Programming/generate_stars/icon.png
+Terminal=false
+Categories=Utility;
+Keywords=gtk;python;stars;shkolkovo;
+StartupNotify=true
