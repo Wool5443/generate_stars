@@ -1,0 +1,7 @@
+# Runtime Python bindings for GTK4/cairo. GTK itself is provided by the OS
+# packages listed in README.md and .github/workflows/build-bundles.yml.
+PyGObject>=3.48
+pycairo>=1.26
+
+# Bundle builds
+pyinstaller>=6.19
